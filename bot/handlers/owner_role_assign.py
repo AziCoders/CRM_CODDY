@@ -1,0 +1,153 @@
+"""Обработчики для назначения ролей владельцем"""
+from aiogram import Router, Bot
+from aiogram.types import CallbackQuery, Message
+from aiogram.filters import StateFilter
+from bot.services.role_storage import RoleStorage
+from bot.keyboards.inline_keyboards import (
+    RoleCallback,
+    CityCallback,
+    get_city_keyboard
+)
+from bot.keyboards.reply_keyboards import (
+    get_manager_menu,
+    get_teacher_menu,
+    get_smm_menu
+)
+from bot.config import OWNER_ID, BOT_TOKEN
+
+router = Router()
+storage = RoleStorage()
+
+
+@router.callback_query(RoleCallback.filter())
+async def process_role_selection(
+    callback: CallbackQuery,
+    callback_data: RoleCallback,
+    bot: Bot
+):
+    """Обработка выбора роли владельцем"""
+    if callback.from_user.id != OWNER_ID:
+        await callback.answer("❌ У вас нет прав для этого действия", show_alert=True)
+        return
+    
+    user_id = callback_data.user_id
+    role = callback_data.role
+    
+    # Получаем данные пользователя из хранилища
+    user_data = storage.get_user(user_id)
+    
+    if not user_data:
+        await callback.answer("❌ Данные пользователя не найдены", show_alert=True)
+        return
+    
+    fio = user_data.get("fio", "")
+    username = user_data.get("username", "")
+    
+    # Проверяем, что пользователь в статусе "pending"
+    current_role = user_data.get("role", "")
+    if current_role != "pending":
+        await callback.answer(
+            f"⚠️ Пользователь уже имеет роль: {current_role}", 
+            show_alert=True
+        )
+        return
+    
+    if role == "teacher":
+        # Для преподавателя нужно выбрать город
+        await callback.message.edit_text(
+            f"Выберите город для преподавателя:\n\n"
+            f"ФИО: {fio}\n"
+            f"Username: @{username}",
+            reply_markup=get_city_keyboard(user_id)
+        )
+        await callback.answer()
+    elif role in ["manager", "smm"]:
+        # Для менеджера и SMM сразу сохраняем с city="all"
+        try:
+            storage.add_user(
+                user_id=user_id,
+                fio=fio,
+                username=username,
+                role=role,
+                city="all"
+            )
+            
+            # Уведомляем пользователя
+            try:
+                if role == "manager":
+                    menu_text = "👨‍💼 Ваша роль назначена. Добро пожаловать!"
+                    menu = get_manager_menu()
+                else:  # smm
+                    menu_text = "📱 Ваша роль назначена. Добро пожаловать!"
+                    menu = get_smm_menu()
+                
+                await bot.send_message(
+                    chat_id=user_id,
+                    text=menu_text,
+                    reply_markup=menu
+                )
+            except Exception as e:
+                print(f"Ошибка отправки сообщения пользователю {user_id}: {e}")
+            
+            await callback.message.edit_text(
+                f"✅ Роль '{role}' успешно назначена пользователю {fio}"
+            )
+            await callback.answer("✅ Роль назначена")
+        except Exception as e:
+            await callback.answer(f"❌ Ошибка: {e}", show_alert=True)
+            print(f"Ошибка назначения роли: {e}")
+
+
+@router.callback_query(CityCallback.filter())
+async def process_city_selection(
+    callback: CallbackQuery,
+    callback_data: CityCallback,
+    bot: Bot
+):
+    """Обработка выбора города для преподавателя"""
+    if callback.from_user.id != OWNER_ID:
+        await callback.answer("❌ У вас нет прав для этого действия", show_alert=True)
+        return
+    
+    user_id = callback_data.user_id
+    city = callback_data.city
+    
+    # Получаем данные пользователя
+    user_data = storage.get_user(user_id)
+    
+    if not user_data:
+        await callback.answer("❌ Данные пользователя не найдены", show_alert=True)
+        return
+    
+    fio = user_data.get("fio", "")
+    username = user_data.get("username", "")
+    
+    try:
+        # Сохраняем преподавателя с выбранным городом
+        storage.add_user(
+            user_id=user_id,
+            fio=fio,
+            username=username,
+            role="teacher",
+            city=city
+        )
+        
+        # Уведомляем пользователя
+        try:
+            await bot.send_message(
+                chat_id=user_id,
+                text=f"👨‍🏫 Ваша роль назначена. Добро пожаловать!\n"
+                     f"Ваш город: {city}",
+                reply_markup=get_teacher_menu()
+            )
+        except Exception as e:
+            print(f"Ошибка отправки сообщения пользователю {user_id}: {e}")
+        
+        await callback.message.edit_text(
+            f"✅ Преподаватель '{fio}' назначен в город '{city}'"
+        )
+        await callback.answer("✅ Роль назначена")
+    except Exception as e:
+        await callback.answer(f"❌ Ошибка: {e}", show_alert=True)
+        print(f"Ошибка назначения роли: {e}")
+
