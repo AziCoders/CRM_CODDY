@@ -21,6 +21,12 @@ class PaymentsPaginationCallback(CallbackData, prefix="payments_page"):
     page: int  # Номер страницы (начинается с 0)
 
 
+class GroupAttendanceCallback(CallbackData, prefix="grp_att"):
+    """Callback для выбора группы для детального отчета по посещаемости"""
+    city: str  # Название города (сокращенное)
+    idx: int  # Индекс группы в списке
+
+
 def get_report_city_keyboard() -> InlineKeyboardMarkup:
     """Клавиатура для выбора города (для владельца)"""
     keyboard = []
@@ -49,10 +55,6 @@ def get_report_keyboard(city: str = "", is_owner: bool = False) -> InlineKeyboar
             callback_data=ReportTypeCallback(report_type="summary", city=city).pack()
         )],
         [InlineKeyboardButton(
-            text="📈 Посещаемость по городу",
-            callback_data=ReportTypeCallback(report_type="city_attendance", city=city).pack()
-        )],
-        [InlineKeyboardButton(
             text="📋 Посещаемость по группам",
             callback_data=ReportTypeCallback(report_type="groups_attendance", city=city).pack()
         )],
@@ -64,6 +66,35 @@ def get_report_keyboard(city: str = "", is_owner: bool = False) -> InlineKeyboar
             text="💰 Отчет по оплатам",
             callback_data=ReportTypeCallback(report_type="payments", city=city).pack()
         )])
+    
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
+
+def get_groups_keyboard(city_short: str, groups: list) -> InlineKeyboardMarkup:
+    """Клавиатура для выбора группы в отчете по посещаемости"""
+    keyboard = []
+    
+    # Создаем кнопки по 2 в ряд
+    for i in range(0, len(groups), 2):
+        row = []
+        group1 = groups[i]
+        row.append(InlineKeyboardButton(
+            text=group1["group_name"],
+            callback_data=GroupAttendanceCallback(city=city_short, idx=i).pack()
+        ))
+        if i + 1 < len(groups):
+            group2 = groups[i + 1]
+            row.append(InlineKeyboardButton(
+                text=group2["group_name"],
+                callback_data=GroupAttendanceCallback(city=city_short, idx=i + 1).pack()
+            ))
+        keyboard.append(row)
+    
+    # Кнопка возврата к отчетам (используем полное название из кэша)
+    keyboard.append([InlineKeyboardButton(
+        text="🔙 Назад к отчетам",
+        callback_data=ReportTypeCallback(report_type="back_to_menu", city=city_short).pack()
+    )])
     
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 

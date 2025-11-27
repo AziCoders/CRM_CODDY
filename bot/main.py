@@ -5,8 +5,7 @@ from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage
 from bot.config import BOT_TOKEN
 from bot.middlewares.role_middleware import RoleMiddleware
-from bot.handlers import start, owner_role_assign, student_search, add_student, reports
-
+from bot.handlers import start, owner_role_assign, student_search, add_student, report
 # Настройка логирования
 logging.basicConfig(
     level=logging.INFO,
@@ -14,26 +13,25 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-
 async def main():
     """Главная функция запуска бота"""
     # Создаем бота и диспетчер
     bot = Bot(token=BOT_TOKEN)
     dp = Dispatcher(storage=MemoryStorage())
-    
+
     # Регистрируем middleware
     dp.message.middleware(RoleMiddleware())
     dp.callback_query.middleware(RoleMiddleware())
-    
+
     # Регистрируем роутеры (важен порядок - более специфичные обработчики должны быть раньше)
     dp.include_router(start.router)
     dp.include_router(owner_role_assign.router)
     dp.include_router(add_student.router)  # Добавляем раньше, чтобы перехватывать кнопки меню
-    dp.include_router(reports.router)  # Отчеты
+    dp.include_router(report.router)  # Отчеты
     dp.include_router(student_search.router)  # Поиск должен быть последним
-    
+
     logger.info("Бот запущен и готов к работе")
-    
+
     # Запускаем polling
     try:
         await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
