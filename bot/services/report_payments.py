@@ -426,22 +426,37 @@ class PaymentsReportGenerator:
         # Стили
         header_fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
         header_font = Font(bold=True, color="FFFFFF")
-        total_fill = PatternFill(start_color="D9E1F2", end_color="D9E1F2", fill_type="solid")
         total_font = Font(bold=True)
 
-        # Заголовки
+        # === Цвета статусов ===
+        status_colors = {
+            STATUS_PAID: "92D050",  # зеленый
+            STATUS_NOT_PAID: "FF0000",  # красный
+            STATUS_DEFERRED: "FFD966",  # желтый
+            STATUS_WROTE: "5B9BD5",  # синий
+            STATUS_NOT_STUDYING: "C0C0C0"  # серый
+        }
+
+        # Цвета финансов
+        finance_colors = {
+            "expected_turnover": "5B9BD5",  # синий
+            "current_turnover": "92D050",  # зеленый
+            "debt": "FF0000"  # красный
+        }
+
+        # Заголовки основной таблицы
         headers = ["ФИО", "Телефон", "URL профиля", "URL оплаты"]
         headers.extend(self.months)
         headers.append("Комментарий")
 
-        # Заголовки
+        # Записываем заголовки
         for col_idx, header in enumerate(headers, 1):
             cell = ws.cell(row=1, column=col_idx, value=header)
             cell.fill = header_fill
             cell.font = header_font
             cell.alignment = Alignment(horizontal="center", vertical="center")
 
-        # Данные
+        # === Записываем учеников ===
         row_idx = 2
         for record in self.merged_data:
             ws.cell(row=row_idx, column=1, value=record.get("fio", ""))
@@ -449,27 +464,34 @@ class PaymentsReportGenerator:
             ws.cell(row=row_idx, column=3, value=record.get("student_url", ""))
             ws.cell(row=row_idx, column=4, value=record.get("payment_url", ""))
 
+            # Месяцы
             months_data = record.get("months", {})
             for month_idx, month in enumerate(self.months, 5):
                 status = months_data.get(month, STATUS_NOT_STUDYING)
-                ws.cell(row=row_idx, column=month_idx, value=status)
+                cell = ws.cell(row=row_idx, column=month_idx, value=status)
 
+                # Окрашивание статуса
+                fill_color = status_colors.get(status)
+                if fill_color:
+                    cell.fill = PatternFill(start_color=fill_color, end_color=fill_color, fill_type="solid")
+
+            # Комментарий
             comment_col = 5 + len(self.months)
             ws.cell(row=row_idx, column=comment_col, value=record.get("comment", ""))
 
             row_idx += 1
 
-        # ===== Итоги по КАЖДОМУ месяцу внизу столбцов =====
-        total_row = row_idx  # строка "ИТОГО"
+        # === Подсчёт итогов по месяцам ===
+        total_row = row_idx
 
-        # подсчёт по месяцам
-        month_totals = {month: {"paid": 0, "not_paid": 0, "deferred": 0, "wrote": 0}
-                        for month in self.months}
+        month_totals = {
+            month: {"paid": 0, "not_paid": 0, "deferred": 0, "wrote": 0}
+            for month in self.months
+        }
 
         for record in self.merged_data:
-            months_data = record.get("months", {})
             for month in self.months:
-                status = months_data.get(month, STATUS_NOT_STUDYING)
+                status = record["months"][month]
                 if status == STATUS_PAID:
                     month_totals[month]["paid"] += 1
                 elif status == STATUS_NOT_PAID:
@@ -479,93 +501,133 @@ class PaymentsReportGenerator:
                 elif status == STATUS_WROTE:
                     month_totals[month]["wrote"] += 1
 
-        # подпись "ИТОГО"
-        cell_itogo = ws.cell(row=total_row, column=1, value="ИТОГО")
-        cell_itogo.font = total_font
-        cell_itogo.fill = total_fill
-
-        # заполняем ячейки по месяцам
-        for month_idx, month in enumerate(self.months, 5):
-            totals = month_totals[month]
-
-            deferred_sum = totals["deferred"] * PRICE_PER_MONTH
-            wrote_sum = totals["wrote"] * PRICE_PER_MONTH
-
-            deferred_sum_str = f"{deferred_sum:,}".replace(",", " ")
-            wrote_sum_str = f"{wrote_sum:,}".replace(",", " ")
-
-            total_text = (
-                f"Оплатили: {totals['paid']}\n"
-                f"Не оплатили: {totals['not_paid']}\n"
-                f"Отсрочка: {totals['deferred']} ({deferred_sum_str} руб.)\n"
-                f"Написали: {totals['wrote']} ({wrote_sum_str} руб.)"
-            )
-
-            cell = ws.cell(row=total_row, column=month_idx, value=total_text)
-            cell.fill = total_fill
-            cell.alignment = Alignment(horizontal="left", vertical="top", wrap_text=True)
-
-        # ===== Общий блок по ТЕКУЩЕМУ месяцу (слева внизу) =====
-        current_month = self._get_current_month()
-        totals = month_totals.get(current_month, {"paid": 0, "not_paid": 0, "deferred": 0, "wrote": 0})
-        total_students_month = totals["paid"] + totals["not_paid"] + totals["deferred"] + totals["wrote"]
-
-        # считаем финансы за текущий месяц и обновляем self.finances
-        self.calculate_finances(current_month)
-
+        # === Нижний блок — суммарно по всем месяцам ===
         summary_start = total_row + 2
 
-        ws.cell(row=summary_start, column=1, value="Всего учеников").font = total_font
-        ws.cell(row=summary_start, column=2, value=total_students_month)
+        metrics = [
+            ("Всего учеников", lambda t: t["paid"] + t["not_paid"] + t["deferred"] + t["wrote"]),
+            ("Оплатили", lambda t: t["paid"]),
+            ("Не оплатили", lambda t: t["not_paid"]),
+            ("Отсрочка", lambda t: t["deferred"]),
+            ("Написали", lambda t: t["wrote"]),
+        ]
 
-        ws.cell(row=summary_start + 1, column=1, value="Оплатили").font = total_font
-        ws.cell(row=summary_start + 1, column=2, value=totals["paid"])
+        # Сумма за все месяцы
+        totals_all = {
+            "total_students": sum(metrics[0][1](month_totals[m]) for m in self.months),
+            "paid": sum(month_totals[m]["paid"] for m in self.months),
+            "not_paid": sum(month_totals[m]["not_paid"] for m in self.months),
+            "deferred": sum(month_totals[m]["deferred"] for m in self.months),
+            "wrote": sum(month_totals[m]["wrote"] for m in self.months),
+        }
 
-        ws.cell(row=summary_start + 2, column=1, value="Не оплатили").font = total_font
-        ws.cell(row=summary_start + 2, column=2, value=totals["not_paid"])
+        # Финансы по месяцам и суммарно
+        finance_all = {"expected_turnover": 0, "current_turnover": 0, "debt": 0}
+        finance_by_month = {}
 
-        ws.cell(row=summary_start + 3, column=1, value="Отсрочка").font = total_font
-        ws.cell(row=summary_start + 3, column=2, value=totals["deferred"])
+        for month in self.months:
+            self.calculate_finances(month)
+            finance_by_month[month] = dict(self.finances)
+            finance_all["expected_turnover"] += self.finances["expected_turnover"]
+            finance_all["current_turnover"] += self.finances["current_turnover"]
+            finance_all["debt"] += self.finances["debt"]
 
-        ws.cell(row=summary_start + 4, column=1, value="Написали").font = total_font
-        ws.cell(row=summary_start + 4, column=2, value=totals["wrote"])
+        # === Формируем строки метрик (A, B, E..N) ===
+        current_row = summary_start
 
-        # Финансы за текущий месяц
-        ws.cell(row=summary_start + 6, column=1, value="Ожидаемый оборот:").font = total_font
-        expected_cell = ws.cell(row=summary_start + 6, column=2, value=self.finances["expected_turnover"])
-        expected_cell.font = total_font
-        expected_cell.number_format = "#,##0"
+        for name, getter in metrics:
+            ws.cell(row=current_row, column=1, value=name).font = total_font
 
-        ws.cell(row=summary_start + 7, column=1, value="Оборот сейчас:").font = total_font
-        current_cell = ws.cell(row=summary_start + 7, column=2, value=self.finances["current_turnover"])
-        current_cell.font = total_font
-        current_cell.number_format = "#,##0"
+            # Сумма всех месяцев (столбец B)
+            key = {
+                "Всего учеников": "total_students",
+                "Оплатили": "paid",
+                "Не оплатили": "not_paid",
+                "Отсрочка": "deferred",
+                "Написали": "wrote"
+            }[name]
 
-        ws.cell(row=summary_start + 8, column=1, value="Долг:").font = total_font
-        debt_cell = ws.cell(row=summary_start + 8, column=2, value=self.finances["debt"])
-        debt_cell.font = total_font
-        debt_cell.number_format = "#,##0"
+            ws.cell(row=current_row, column=2, value=totals_all[key])
 
-        # Ширина колонок
-        ws.column_dimensions["A"].width = 30  # ФИО
-        ws.column_dimensions["B"].width = 18  # Телефон
-        ws.column_dimensions["C"].width = 50  # URL профиля
-        ws.column_dimensions["D"].width = 50  # URL оплаты
+            # C и D пустые
+            ws.cell(row=current_row, column=3, value="")
+            ws.cell(row=current_row, column=4, value="")
+
+            # Значения по каждому месяцу
+            for idx_m, month in enumerate(self.months, start=5):
+                ws.cell(row=current_row, column=idx_m, value=getter(month_totals[month]))
+
+            current_row += 1
+
+        # === Финансы ===
+
+        # Ожидаемый оборот
+        ws.cell(row=current_row, column=1, value="Ожидаемый оборот").font = total_font
+        cell = ws.cell(row=current_row, column=2, value=finance_all["expected_turnover"])
+        cell.fill = PatternFill(start_color=finance_colors["expected_turnover"],
+                                end_color=finance_colors["expected_turnover"], fill_type="solid")
+
+        for idx_m, month in enumerate(self.months, start=5):
+            c = ws.cell(row=current_row, column=idx_m, value=finance_by_month[month]["expected_turnover"])
+            c.fill = PatternFill(start_color=finance_colors["expected_turnover"],
+                                 end_color=finance_colors["expected_turnover"], fill_type="solid")
+
+        current_row += 1
+
+        # Оборот сейчас
+        ws.cell(row=current_row, column=1, value="Оборот сейчас").font = total_font
+        cell = ws.cell(row=current_row, column=2, value=finance_all["current_turnover"])
+        cell.fill = PatternFill(start_color=finance_colors["current_turnover"],
+                                end_color=finance_colors["current_turnover"], fill_type="solid")
+
+        for idx_m, month in enumerate(self.months, start=5):
+            c = ws.cell(row=current_row, column=idx_m, value=finance_by_month[month]["current_turnover"])
+            c.fill = PatternFill(start_color=finance_colors["current_turnover"],
+                                 end_color=finance_colors["current_turnover"], fill_type="solid")
+
+        current_row += 1
+
+        # Долг
+        ws.cell(row=current_row, column=1, value="Долг").font = total_font
+        cell = ws.cell(row=current_row, column=2, value=finance_all["debt"])
+        cell.fill = PatternFill(start_color=finance_colors["debt"], end_color=finance_colors["debt"], fill_type="solid")
+
+        for idx_m, month in enumerate(self.months, start=5):
+            c = ws.cell(row=current_row, column=idx_m, value=finance_by_month[month]["debt"])
+            c.fill = PatternFill(start_color=finance_colors["debt"], end_color=finance_colors["debt"],
+                                 fill_type="solid")
+
+        # Ширина столбцов
+        ws.column_dimensions["A"].width = 30
+        ws.column_dimensions["B"].width = 18
+        ws.column_dimensions["C"].width = 50
+        ws.column_dimensions["D"].width = 50
 
         for idx in range(5, 5 + len(self.months)):
             ws.column_dimensions[get_column_letter(idx)].width = 20
 
-        ws.column_dimensions[get_column_letter(5 + len(self.months))].width = 30  # Комментарий
+        ws.column_dimensions[get_column_letter(5 + len(self.months))].width = 30
 
-        # Сохраняем
         output_path = self.base_path / "payments_report.xlsx"
         wb.save(output_path)
         return output_path
 
     def build_summary_text(self) -> str:
-        """Формирует текстовый отчет для Telegram"""
+        """Формирует текстовый отчет для Telegram (по текущему месяцу)"""
+        current_month = self._get_current_month()
+        # Всего учеников в текущем месяце (кроме "Не учился")
+        total_students = (
+                self.stats["paid"] +
+                self.stats["not_paid"] +
+                self.stats["deferred"] +
+                self.stats["wrote"]
+        )
+
         lines = [
             self.city_name,
+            f"Месяц: {current_month}",
+            "",
+            f"Всего учеников: {total_students}",
             "",
             f"Оплатили: {self.stats['paid']}",
             f"Написали: {self.stats['wrote']}",
