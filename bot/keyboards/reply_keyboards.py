@@ -5,7 +5,7 @@ from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 def get_owner_menu() -> ReplyKeyboardMarkup:
     """Меню для владельца"""
     keyboard = [
-        [KeyboardButton(text="Управление ролями")],
+        [KeyboardButton(text="Управление ролями"), KeyboardButton(text="История действий")],
         [KeyboardButton(text="Добавить ученика"), KeyboardButton(text="Посещаемость")],
         [KeyboardButton(text="Оплаты"), KeyboardButton(text="Города")],
         [KeyboardButton(text="Синхронизация"), KeyboardButton(text="Отчёты")],
@@ -22,7 +22,7 @@ def get_manager_menu() -> ReplyKeyboardMarkup:
     """Меню для менеджера"""
     keyboard = [
         [KeyboardButton(text="Добавить ученика"), KeyboardButton(text="Посещаемость")],
-        [KeyboardButton(text="Города")],
+        [KeyboardButton(text="Оплаты"), KeyboardButton(text="Города")],
     ]
     return ReplyKeyboardMarkup(
         keyboard=keyboard,
@@ -35,7 +35,7 @@ def get_teacher_menu() -> ReplyKeyboardMarkup:
     """Меню для преподавателя"""
     keyboard = [
         [KeyboardButton(text="Добавить ученика"), KeyboardButton(text="Посещаемость")],
-        [KeyboardButton(text="Отчёты")],
+        [KeyboardButton(text="Оплаты"), KeyboardButton(text="Отчёты")],
     ]
     return ReplyKeyboardMarkup(
         keyboard=keyboard,

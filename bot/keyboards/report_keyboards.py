@@ -30,6 +30,13 @@ class GroupAttendanceCallback(CallbackData, prefix="grp_att"):
 def get_report_city_keyboard() -> InlineKeyboardMarkup:
     """Клавиатура для выбора города (для владельца)"""
     keyboard = []
+    
+    # Кнопка "Все города" для общего отчета
+    keyboard.append([InlineKeyboardButton(
+        text="🌍 Все города (Общий отчет)",
+        callback_data=ReportCityCallback(city="all").pack()
+    )])
+    
     # Создаем кнопки по 2 в ряд
     for i in range(0, len(CITIES), 2):
         row = []

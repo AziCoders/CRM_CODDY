@@ -4,6 +4,7 @@ from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKe
 from bot.services.report_service import ReportService
 from bot.services.report_payments import generate_payments_report
 from bot.services.role_storage import RoleStorage
+from bot.services.action_logger import ActionLogger
 from bot.keyboards.report_keyboards import (
     ReportTypeCallback,
     ReportCityCallback,
@@ -18,6 +19,7 @@ from typing import Dict
 router = Router()
 report_service = ReportService()
 role_storage = RoleStorage()
+action_logger = ActionLogger()
 
 # Временное хранилище для маппинга групп (city + idx -> group_id)
 # Очищается при получении нового списка групп
@@ -80,6 +82,17 @@ async def process_city_selection(
     
     selected_city = callback_data.city
     
+    # Если выбраны все города - показываем меню для общего отчета
+    if selected_city == "all":
+        await callback.message.edit_text(
+            "📊 <b>Общий отчёт по всем городам</b>\n\n"
+            "Выберите тип отчета:",
+            reply_markup=get_report_keyboard(city="all", is_owner=True),
+            parse_mode="HTML"
+        )
+        await callback.answer()
+        return
+    
     # Показываем меню выбора типа отчета для выбранного города
     await callback.message.edit_text(
         f"📊 <b>Отчёты по городу: {selected_city}</b>\n\n"
@@ -116,7 +129,7 @@ async def process_report_type(
             await callback.answer("❌ У вас не назначен город", show_alert=True)
             return
     
-    # Для владельца город должен быть в callback
+    # Для владельца город должен быть в callback (или "all" для общего отчета)
     if user_role == "owner" and not city:
         await callback.answer("❌ Не выбран город", show_alert=True)
         return
@@ -126,13 +139,74 @@ async def process_report_type(
     try:
         # Обработка возврата к меню отчетов
         if report_type == "back_to_menu":
+            if city == "all":
+                title = "📊 <b>Общий отчёт по всем городам</b>"
+            else:
+                title = f"📊 <b>Отчёты по городу: {city}</b>"
+            
             await callback.message.edit_text(
-                f"📊 <b>Отчёты по городу: {city}</b>\n\n"
+                f"{title}\n\n"
                 f"Выберите тип отчета:",
                 parse_mode="HTML",
                 reply_markup=get_report_keyboard(city=city, is_owner=(user_role == "owner"))
             )
             await callback.answer()
+            return
+        
+        # Если выбран общий отчет по всем городам
+        if city == "all":
+            if report_type == "payments":
+                # Общий отчет по оплатам
+                try:
+                    await callback.message.edit_text("⏳ Генерация общего отчета по оплатам...")
+                    summary_text, excel_path = generate_payments_report("all")
+                    
+                    # Отправляем текстовый отчет
+                    await callback.message.edit_text(
+                        summary_text,
+                        parse_mode="HTML",
+                        reply_markup=get_report_keyboard(city="all", is_owner=True)
+                    )
+                    
+                    # Отправляем Excel файл
+                    document = FSInputFile(excel_path)
+                    await callback.message.answer_document(
+                        document,
+                        caption="📊 Общий отчет по оплатам (все города)"
+                    )
+                    
+                    await callback.answer("✅ Отчет сгенерирован")
+                except Exception as e:
+                    await callback.answer(f"❌ Ошибка при генерации отчета: {str(e)}", show_alert=True)
+                    print(f"Ошибка генерации общего отчета по оплатам: {e}")
+            elif report_type == "summary":
+                # Общий отчет - сводка
+                await callback.message.edit_text("⏳ Генерация общего отчета...")
+                all_cities_report = report_service.get_all_cities_report()
+                
+                # Логируем действие
+                user_data = role_storage.get_user(callback.from_user.id)
+                action_logger.log_action(
+                    user_id=callback.from_user.id,
+                    user_fio=user_data.get("fio", callback.from_user.full_name) if user_data else callback.from_user.full_name,
+                    username=callback.from_user.username or "нет",
+                    action_type="generate_report",
+                    action_details={
+                        "report_type": "summary",
+                        "city": "all"
+                    },
+                    role=user_data.get("role") if user_data else None
+                )
+                
+                formatted = report_service.format_all_cities_summary(all_cities_report)
+                await callback.message.edit_text(
+                    formatted,
+                    parse_mode="HTML",
+                    reply_markup=get_report_keyboard(city="all", is_owner=True)
+                )
+                await callback.answer()
+            else:
+                await callback.answer("❌ Для общего отчета доступны только сводка и отчет по оплатам", show_alert=True)
             return
         
         # Форматируем в зависимости от типа

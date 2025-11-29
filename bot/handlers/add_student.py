@@ -23,12 +23,14 @@ from bot.keyboards.reply_keyboards import (
 )
 from bot.services.group_service import GroupService
 from bot.services.role_storage import RoleStorage
+from bot.services.action_logger import ActionLogger
 from bot.config import CITY_MAPPING
 from src.CRUD.crud_student import NotionStudentCRUD
 
 router = Router()
 group_service = GroupService()
 role_storage = RoleStorage()
+action_logger = ActionLogger()
 
 # Доступные тарифы и статусы
 AVAILABLE_TARIFFS = [
@@ -337,6 +339,24 @@ async def process_student_data(message: Message, state: FSMContext, user_role: s
                 f"ID существующего ученика: {result.get('existing_student_id')}"
             )
         else:
+            # Логируем действие
+            user_data = role_storage.get_user(message.from_user.id)
+            action_logger.log_action(
+                user_id=message.from_user.id,
+                user_fio=user_data.get("fio", message.from_user.full_name) if user_data else message.from_user.full_name,
+                username=message.from_user.username or "нет",
+                action_type="add_student",
+                action_details={
+                    "student": {
+                        **student_data,
+                        "group_name": group_name,
+                        "student_id": result.get("student_id", "")
+                    }
+                },
+                city=city_name,
+                role=user_data.get("role") if user_data else None
+            )
+            
             await message.answer(
                 f"✅ Ученик успешно добавлен!\n\n"
                 f"👤 ФИО: {student_data['ФИО']}\n"

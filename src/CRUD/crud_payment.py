@@ -223,6 +223,50 @@ class NotionPaymentUpdater:
                 print(f" ❌ Ошибка при обновлении {fio}: {e}")
 
 
+    async def update_comment(self, identifier: str, comment: str):
+        """Обновляет комментарий к оплате ученика."""
+        print(f"🔍 Ищу ученика '{identifier}' для обновления комментария...")
+        
+        # 1️⃣ Сначала ищем по ФИО
+        response = await self.notion.databases.query(
+            database_id=self.database_id,
+            filter={"property": "ФИО", "rich_text": {"equals": identifier}},
+        )
+        
+        # Если по ФИО нашли — это один ученик
+        if response["results"]:
+            results = response["results"]
+        else:
+            # 2️⃣ Иначе ищем по номеру телефона
+            response = await self.notion.databases.query(
+                database_id=self.database_id,
+                filter={"property": "Phone", "phone_number": {"contains": identifier}},
+            )
+            results = response["results"]
+        
+        if not results:
+            print(f"⚠️ Ученик '{identifier}' не найден.")
+            return
+        
+        # 3️⃣ Обновляем ВСЕ найденные записи
+        for item in results:
+            page_id = item["id"]
+            fio_prop = item["properties"]["ФИО"]["rich_text"]
+            fio = fio_prop[0]["plain_text"] if fio_prop else "Unknown"
+            
+            try:
+                await self.notion.pages.update(
+                    page_id=page_id,
+                    properties={"Комментарий": {"rich_text": [{"type": "text", "text": {"content": comment}}]}}
+                )
+                print(f" ✅ Комментарий обновлен для {fio}")
+            except Exception as e:
+                print(f" ❌ Ошибка при обновлении комментария для {fio}: {e}")
+        
+        # Синхронизируем данные
+        fetcher = NotionPaymentsFetcher(self.city_name)
+        await fetcher.build_payments()
+
     async def close(self):
         pass
 

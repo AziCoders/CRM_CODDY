@@ -7,7 +7,7 @@ from collections import Counter
 from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment, PatternFill
 from openpyxl.utils import get_column_letter
-from bot.config import ROOT_DIR, CITY_MAPPING
+from bot.config import ROOT_DIR, CITY_MAPPING, CITIES
 
 # Константы
 PRICE_PER_MONTH = 5000
@@ -664,10 +664,420 @@ def generate_payments_report(city_name: str) -> Tuple[str, Path]:
     Генерирует отчет по оплатам для города
     
     Args:
-        city_name: Название города (русское)
+        city_name: Название города (русское) или "all" для всех городов
     
     Returns:
         Tuple[str, Path]: (текстовый отчет, путь к Excel файлу)
     """
+    if city_name == "all":
+        return generate_all_cities_payments_report()
+    
     generator = PaymentsReportGenerator(city_name)
     return generator.generate_report()
+
+
+def generate_all_cities_payments_report() -> Tuple[str, Path]:
+    """
+    Генерирует общий отчет по оплатам для всех городов
+    Использует те же правила, что и простой отчет, но с добавлением столбца "Город"
+    
+    Returns:
+        Tuple[str, Path]: (текстовый отчет, путь к Excel файлу)
+    """
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, Alignment, PatternFill
+    from openpyxl.utils import get_column_letter
+    from datetime import datetime
+    from collections import Counter
+    
+    # Собираем данные по всем городам
+    all_cities_data = []
+    all_months = set()
+    
+    # Собираем данные из всех городов
+    for city_name in CITIES:
+        try:
+            generator = PaymentsReportGenerator(city_name)
+            generator.load_data()
+            generator.merge_data()
+            
+            # Собираем месяцы
+            all_months.update(generator.months)
+            
+            # Добавляем данные города с указанием города
+            for record in generator.merged_data:
+                record_with_city = dict(record)
+                record_with_city["city"] = city_name
+                all_cities_data.append(record_with_city)
+        except Exception as e:
+            print(f"Ошибка при загрузке данных для города {city_name}: {e}")
+            continue
+    
+    # Сортируем месяцы
+    month_order = [
+        "Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
+        "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"
+    ]
+    sorted_months = [m for m in month_order if m in all_months]
+    
+    # Используем те же методы расчета, что и в простом отчете
+    # Определяем текущий месяц (используем метод из класса PaymentsReportGenerator)
+    def _get_current_month() -> str:
+        """Возвращает название текущего месяца, который есть в sorted_months."""
+        now_month_index = datetime.now().month - 1  # 0..11
+        current_name = month_order[now_month_index]
+        
+        if current_name in sorted_months:
+            return current_name
+        
+        # Если текущего месяца нет в данных, берем последний доступный месяц
+        if sorted_months:
+            return sorted_months[-1]
+        
+        return ""
+    
+    # Проверяем, что есть данные
+    if not sorted_months:
+        raise ValueError("Нет данных о месяцах для генерации отчета")
+    
+    if not all_cities_data:
+        raise ValueError("Нет данных об учениках для генерации отчета")
+    
+    current_month = _get_current_month()
+    
+    if not current_month:
+        # Если не удалось определить текущий месяц, берем первый доступный
+        current_month = sorted_months[0] if sorted_months else ""
+        if not current_month:
+            raise ValueError("Не удалось определить месяц для отчета")
+    
+    stats = {
+        "paid": 0,
+        "wrote": 0,
+        "not_paid": 0,
+        "deferred": 0
+    }
+    
+    for record in all_cities_data:
+        months_data = record.get("months", {})
+        if not months_data:
+            continue
+        status = months_data.get(current_month, STATUS_NOT_STUDYING)
+        
+        if status == STATUS_PAID:
+            stats["paid"] += 1
+        elif status == STATUS_WROTE:
+            stats["wrote"] += 1
+        elif status == STATUS_NOT_PAID:
+            stats["not_paid"] += 1
+        elif status == STATUS_DEFERRED:
+            stats["deferred"] += 1
+    
+    # Рассчитываем финансы по текущему месяцу (те же правила)
+    total_students_month = stats["paid"] + stats["not_paid"] + stats["deferred"] + stats["wrote"]
+    
+    # Подсчет дублей по телефону для текущего месяца
+    phone_counter = Counter()
+    for record in all_cities_data:
+        months_data = record.get("months", {})
+        status = months_data.get(current_month, STATUS_NOT_STUDYING)
+        
+        if status == STATUS_NOT_STUDYING:
+            continue
+        
+        phone = record.get("phone", "").strip()
+        if phone:
+            phone_counter[phone] += 1
+    
+    total_duplicate_children = sum(count for phone, count in phone_counter.items() if count >= MIN_CHILDREN_FOR_DISCOUNT)
+    
+    # Подсчет дублей только для оплативших
+    paid_phone_counter = Counter()
+    for record in all_cities_data:
+        months_data = record.get("months", {})
+        status = months_data.get(current_month, STATUS_NOT_STUDYING)
+        
+        if status != STATUS_PAID:
+            continue
+        
+        phone = record.get("phone", "").strip()
+        if phone:
+            paid_phone_counter[phone] += 1
+    
+    paid_duplicate_children = sum(count for phone, count in paid_phone_counter.items() if count >= MIN_CHILDREN_FOR_DISCOUNT)
+    
+    # Расчет финансов (те же формулы)
+    expected_turnover = (
+        total_students_month * PRICE_PER_MONTH
+        - DISCOUNT_PER_CHILD * total_duplicate_children
+    )
+    current_turnover = (
+        stats["paid"] * PRICE_PER_MONTH
+        - DISCOUNT_PER_CHILD * paid_duplicate_children
+    )
+    debt = expected_turnover - current_turnover
+    
+    # Формируем текстовый отчет (те же правила)
+    total_students = stats["paid"] + stats["not_paid"] + stats["deferred"] + stats["wrote"]
+    
+    summary_lines = [
+        "Общий отчёт по оплатам (все города)",
+        f"Месяц: {current_month}",
+        "",
+        f"Всего учеников: {total_students}",
+        "",
+        f"Оплатили: {stats['paid']}",
+        f"Написали: {stats['wrote']}",
+        f"Не оплатили: {stats['not_paid']}",
+        f"Отсрочка: {stats['deferred']}",
+        "",
+        f"Ожидаемый оборот: {expected_turnover:,}".replace(",", " "),
+        f"Оборот сейчас: {current_turnover:,}".replace(",", " "),
+        f"Долг: {debt:,}".replace(",", " ")
+    ]
+    
+    summary_text = "\n".join(summary_lines)
+    
+    # Создаем Excel файл (те же стили и структура, но с добавлением столбца "Город")
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Отчет по оплатам"
+    
+    # Стили (те же, что и в простом отчете)
+    header_fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
+    header_font = Font(bold=True, color="FFFFFF")
+    total_font = Font(bold=True)
+    
+    # Цвета статусов (те же)
+    status_colors = {
+        STATUS_PAID: "92D050",  # зеленый
+        STATUS_NOT_PAID: "FF0000",  # красный
+        STATUS_DEFERRED: "FFD966",  # желтый
+        STATUS_WROTE: "5B9BD5",  # синий
+        STATUS_NOT_STUDYING: "C0C0C0"  # серый
+    }
+    
+    # Цвета финансов (те же)
+    finance_colors = {
+        "expected_turnover": "5B9BD5",  # синий
+        "current_turnover": "92D050",  # зеленый
+        "debt": "FF0000"  # красный
+    }
+    
+    # Заголовки (добавляем "Город" перед ФИО)
+    headers = ["Город", "ФИО", "Телефон", "URL профиля", "URL оплаты"]
+    headers.extend(sorted_months)
+    headers.append("Комментарий")
+    
+    # Записываем заголовки
+    for col_idx, header in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col_idx, value=header)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+    
+    # Записываем учеников
+    row_idx = 2
+    for record in all_cities_data:
+        ws.cell(row=row_idx, column=1, value=record.get("city", ""))  # Город
+        ws.cell(row=row_idx, column=2, value=record.get("fio", ""))  # ФИО
+        ws.cell(row=row_idx, column=3, value=record.get("phone", ""))  # Телефон
+        ws.cell(row=row_idx, column=4, value=record.get("student_url", ""))  # URL профиля
+        ws.cell(row=row_idx, column=5, value=record.get("payment_url", ""))  # URL оплаты
+        
+        # Месяцы (начинаем с колонки 6, так как добавили "Город")
+        months_data = record.get("months", {})
+        for month_idx, month in enumerate(sorted_months, 6):
+            status = months_data.get(month, STATUS_NOT_STUDYING)
+            cell = ws.cell(row=row_idx, column=month_idx, value=status)
+            
+            # Окрашивание статуса
+            fill_color = status_colors.get(status)
+            if fill_color:
+                cell.fill = PatternFill(start_color=fill_color, end_color=fill_color, fill_type="solid")
+        
+        # Комментарий
+        comment_col = 6 + len(sorted_months)
+        ws.cell(row=row_idx, column=comment_col, value=record.get("comment", ""))
+        
+        row_idx += 1
+    
+    # Подсчет итогов по месяцам (те же правила)
+    total_row = row_idx
+    
+    month_totals = {
+        month: {"paid": 0, "not_paid": 0, "deferred": 0, "wrote": 0}
+        for month in sorted_months
+    }
+    
+    for record in all_cities_data:
+        months_data = record.get("months", {})
+        if not months_data:
+            continue
+        for month in sorted_months:
+            status = months_data.get(month, STATUS_NOT_STUDYING)
+            if status == STATUS_PAID:
+                month_totals[month]["paid"] += 1
+            elif status == STATUS_NOT_PAID:
+                month_totals[month]["not_paid"] += 1
+            elif status == STATUS_DEFERRED:
+                month_totals[month]["deferred"] += 1
+            elif status == STATUS_WROTE:
+                month_totals[month]["wrote"] += 1
+    
+    # Нижний блок — суммарно по всем месяцам (те же метрики)
+    summary_start = total_row + 2
+    
+    metrics = [
+        ("Всего учеников", lambda t: t["paid"] + t["not_paid"] + t["deferred"] + t["wrote"]),
+        ("Оплатили", lambda t: t["paid"]),
+        ("Не оплатили", lambda t: t["not_paid"]),
+        ("Отсрочка", lambda t: t["deferred"]),
+        ("Написали", lambda t: t["wrote"]),
+    ]
+    
+    # Сумма за все месяцы
+    totals_all = {
+        "total_students": sum(metrics[0][1](month_totals[m]) for m in sorted_months),
+        "paid": sum(month_totals[m]["paid"] for m in sorted_months),
+        "not_paid": sum(month_totals[m]["not_paid"] for m in sorted_months),
+        "deferred": sum(month_totals[m]["deferred"] for m in sorted_months),
+        "wrote": sum(month_totals[m]["wrote"] for m in sorted_months),
+    }
+    
+    # Финансы по месяцам и суммарно (те же расчеты)
+    finance_all = {"expected_turnover": 0, "current_turnover": 0, "debt": 0}
+    finance_by_month = {}
+    
+    for month in sorted_months:
+        # Расчет финансов для каждого месяца
+        month_total = month_totals[month]["paid"] + month_totals[month]["not_paid"] + month_totals[month]["deferred"] + month_totals[month]["wrote"]
+        
+        # Подсчет дублей для этого месяца
+        month_phone_counter = Counter()
+        month_paid_phone_counter = Counter()
+        
+        for record in all_cities_data:
+            months_data = record.get("months", {})
+            status = months_data.get(month, STATUS_NOT_STUDYING)
+            
+            if status != STATUS_NOT_STUDYING:
+                phone = record.get("phone", "").strip()
+                if phone:
+                    month_phone_counter[phone] += 1
+                    if status == STATUS_PAID:
+                        month_paid_phone_counter[phone] += 1
+        
+        month_duplicate = sum(count for phone, count in month_phone_counter.items() if count >= MIN_CHILDREN_FOR_DISCOUNT)
+        month_paid_duplicate = sum(count for phone, count in month_paid_phone_counter.items() if count >= MIN_CHILDREN_FOR_DISCOUNT)
+        
+        month_expected = month_total * PRICE_PER_MONTH - DISCOUNT_PER_CHILD * month_duplicate
+        month_current = month_totals[month]["paid"] * PRICE_PER_MONTH - DISCOUNT_PER_CHILD * month_paid_duplicate
+        month_debt = month_expected - month_current
+        
+        finance_by_month[month] = {
+            "expected_turnover": month_expected,
+            "current_turnover": month_current,
+            "debt": month_debt
+        }
+        
+        finance_all["expected_turnover"] += month_expected
+        finance_all["current_turnover"] += month_current
+        finance_all["debt"] += month_debt
+    
+    # Формируем строки метрик (те же, что и в простом отчете)
+    current_row = summary_start
+    
+    for name, getter in metrics:
+        ws.cell(row=current_row, column=1, value=name).font = total_font
+        
+        # Сумма всех месяцев (столбец B)
+        key = {
+            "Всего учеников": "total_students",
+            "Оплатили": "paid",
+            "Не оплатили": "not_paid",
+            "Отсрочка": "deferred",
+            "Написали": "wrote"
+        }[name]
+        ws.cell(row=current_row, column=2, value=totals_all[key])
+        
+        # C, D, E пустые (Город, ФИО, Телефон)
+        ws.cell(row=current_row, column=3, value="")
+        ws.cell(row=current_row, column=4, value="")
+        ws.cell(row=current_row, column=5, value="")
+        
+        # Значения по каждому месяцу (начинаем с колонки 6)
+        for idx_m, month in enumerate(sorted_months, start=6):
+            ws.cell(row=current_row, column=idx_m, value=getter(month_totals[month]))
+        
+        current_row += 1
+    
+    # Финансы (те же строки)
+    # Ожидаемый оборот
+    ws.cell(row=current_row, column=1, value="Ожидаемый оборот").font = total_font
+    cell = ws.cell(row=current_row, column=2, value=finance_all["expected_turnover"])
+    cell.fill = PatternFill(start_color=finance_colors["expected_turnover"],
+                            end_color=finance_colors["expected_turnover"], fill_type="solid")
+    
+    ws.cell(row=current_row, column=3, value="")
+    ws.cell(row=current_row, column=4, value="")
+    ws.cell(row=current_row, column=5, value="")
+    
+    for idx_m, month in enumerate(sorted_months, start=6):
+        c = ws.cell(row=current_row, column=idx_m, value=finance_by_month[month]["expected_turnover"])
+        c.fill = PatternFill(start_color=finance_colors["expected_turnover"],
+                             end_color=finance_colors["expected_turnover"], fill_type="solid")
+    
+    current_row += 1
+    
+    # Оборот сейчас
+    ws.cell(row=current_row, column=1, value="Оборот сейчас").font = total_font
+    cell = ws.cell(row=current_row, column=2, value=finance_all["current_turnover"])
+    cell.fill = PatternFill(start_color=finance_colors["current_turnover"],
+                            end_color=finance_colors["current_turnover"], fill_type="solid")
+    
+    ws.cell(row=current_row, column=3, value="")
+    ws.cell(row=current_row, column=4, value="")
+    ws.cell(row=current_row, column=5, value="")
+    
+    for idx_m, month in enumerate(sorted_months, start=6):
+        c = ws.cell(row=current_row, column=idx_m, value=finance_by_month[month]["current_turnover"])
+        c.fill = PatternFill(start_color=finance_colors["current_turnover"],
+                             end_color=finance_colors["current_turnover"], fill_type="solid")
+    
+    current_row += 1
+    
+    # Долг
+    ws.cell(row=current_row, column=1, value="Долг").font = total_font
+    cell = ws.cell(row=current_row, column=2, value=finance_all["debt"])
+    cell.fill = PatternFill(start_color=finance_colors["debt"], end_color=finance_colors["debt"], fill_type="solid")
+    
+    ws.cell(row=current_row, column=3, value="")
+    ws.cell(row=current_row, column=4, value="")
+    ws.cell(row=current_row, column=5, value="")
+    
+    for idx_m, month in enumerate(sorted_months, start=6):
+        c = ws.cell(row=current_row, column=idx_m, value=finance_by_month[month]["debt"])
+        c.fill = PatternFill(start_color=finance_colors["debt"], end_color=finance_colors["debt"],
+                             fill_type="solid")
+    
+    # Ширина столбцов (те же, но с учетом добавленного столбца "Город")
+    ws.column_dimensions["A"].width = 15  # Город
+    ws.column_dimensions["B"].width = 30  # ФИО
+    ws.column_dimensions["C"].width = 18  # Телефон
+    ws.column_dimensions["D"].width = 50  # URL профиля
+    ws.column_dimensions["E"].width = 50  # URL оплаты
+    
+    for idx in range(6, 6 + len(sorted_months)):
+        ws.column_dimensions[get_column_letter(idx)].width = 20
+    
+    ws.column_dimensions[get_column_letter(6 + len(sorted_months))].width = 30  # Комментарий
+    
+    # Сохраняем файл
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"payments_report_all_cities_{timestamp}.xlsx"
+    excel_path = ROOT_DIR / "temp" / filename
+    excel_path.parent.mkdir(parents=True, exist_ok=True)
+    wb.save(excel_path)
+    
+    return summary_text, excel_path

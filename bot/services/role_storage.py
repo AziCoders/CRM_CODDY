@@ -85,4 +85,35 @@ class RoleStorage:
         """Проверяет, является ли пользователь владельцем"""
         from bot.config import OWNER_ID
         return user_id == OWNER_ID
+    
+    def get_all_users(self) -> List[Dict[str, Any]]:
+        """Получает список всех пользователей"""
+        roles = self.load_roles()
+        users = []
+        
+        for user_id_str, user_data in roles.items():
+            user_data["user_id"] = int(user_id_str)
+            users.append(user_data)
+        
+        # Сортируем по ФИО
+        users.sort(key=lambda x: x.get("fio", ""))
+        
+        return users
+    
+    def remove_user(self, user_id: int) -> bool:
+        """Удаляет пользователя из системы"""
+        roles = self.load_roles()
+        user_id_str = str(user_id)
+        
+        if user_id_str not in roles:
+            return False
+        
+        # Не позволяем удалять владельца
+        from bot.config import OWNER_ID
+        if user_id == OWNER_ID:
+            return False
+        
+        del roles[user_id_str]
+        self.save_roles(roles)
+        return True
 

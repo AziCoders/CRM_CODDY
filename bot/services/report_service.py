@@ -4,7 +4,8 @@ from pathlib import Path
 from typing import Dict, Any, List, Tuple
 from statistics import mean
 from datetime import datetime, timedelta
-from bot.config import ROOT_DIR, CITY_MAPPING
+from bot.config import ROOT_DIR, CITY_MAPPING, CITIES
+from statistics import mean
 
 
 class ReportService:
@@ -659,3 +660,70 @@ class ReportService:
         has_next = end_idx < total
 
         return "\n".join(lines), has_prev, has_next
+    
+    def get_all_cities_report(self) -> Dict[str, Any]:
+        """Генерирует общий отчет по всем городам"""
+        all_cities_reports = []
+        total_groups = 0
+        total_students = 0
+        all_attendance_percents = []
+        
+        # Собираем отчеты по всем городам
+        for city_name in CITIES:
+            try:
+                city_report = self.get_city_report(city_name)
+                all_cities_reports.append(city_report)
+                total_groups += city_report.get("groups_count", 0)
+                total_students += city_report.get("total_students", 0)
+                avg_att = city_report.get("avg_attendance_percent_city", 0)
+                if avg_att > 0:
+                    all_attendance_percents.append(avg_att)
+            except Exception as e:
+                print(f"Ошибка при генерации отчета для города {city_name}: {e}")
+                continue
+        
+        # Вычисляем среднюю посещаемость по всем городам
+        avg_attendance_all = 0
+        if all_attendance_percents:
+            avg_attendance_all = round(mean(all_attendance_percents), 2)
+        
+        return {
+            "cities": all_cities_reports,
+            "total_groups": total_groups,
+            "total_students": total_students,
+            "avg_attendance_percent_all": avg_attendance_all,
+            "cities_count": len(all_cities_reports)
+        }
+    
+    def format_all_cities_summary(self, report: Dict[str, Any]) -> str:
+        """Форматирует общую сводку по всем городам"""
+        lines = [
+            "📊 <b>Общий отчёт по всем городам</b>",
+            "",
+            f"🏙️ Точек: {report['cities_count']}",
+            f"🏫 Всего групп: {report['total_groups']}",
+            f"👥 Всего учеников: {report['total_students']}",
+        ]
+        
+        if report.get('avg_attendance_percent_all', 0) > 0:
+            lines.append(f"📈 Средняя посещаемость: {report['avg_attendance_percent_all']}%")
+        
+        lines.append("")
+        lines.append("<b>По городам:</b>")
+        lines.append("")
+        
+        for city_report in report.get("cities", []):
+            city_name = city_report.get("city", "Неизвестно")
+            groups = city_report.get("groups_count", 0)
+            students = city_report.get("total_students", 0)
+            attendance = city_report.get("avg_attendance_percent_city", 0)
+            
+            lines.append(
+                f"🏙️ <b>{city_name}</b>\n"
+                f"   🏫 Групп: {groups}\n"
+                f"   👥 Учеников: {students}\n"
+                f"   📈 Посещаемость: {attendance}%"
+            )
+            lines.append("")
+        
+        return "\n".join(lines)

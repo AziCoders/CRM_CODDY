@@ -14,9 +14,11 @@ from bot.keyboards.reply_keyboards import (
     get_smm_menu
 )
 from bot.config import OWNER_ID, BOT_TOKEN
+from bot.services.action_logger import ActionLogger
 
 router = Router()
 storage = RoleStorage()
+action_logger = ActionLogger()
 
 
 @router.callback_query(RoleCallback.filter())
@@ -70,6 +72,25 @@ async def process_role_selection(
                 username=username,
                 role=role,
                 city="all"
+            )
+            
+            # Логируем действие
+            owner_data = storage.get_user(callback.from_user.id)
+            action_logger.log_action(
+                user_id=callback.from_user.id,
+                user_fio=owner_data.get("fio", "Владелец") if owner_data else "Владелец",
+                username=callback.from_user.username or "нет",
+                action_type="add_role",
+                action_details={
+                    "target_user": {
+                        "id": user_id,
+                        "fio": fio,
+                        "username": username,
+                        "role": role,
+                        "city": "all"
+                    }
+                },
+                role="owner"
             )
             
             # Уведомляем пользователя
@@ -130,6 +151,26 @@ async def process_city_selection(
             username=username,
             role="teacher",
             city=city
+        )
+        
+        # Логируем действие
+        owner_data = storage.get_user(callback.from_user.id)
+        action_logger.log_action(
+            user_id=callback.from_user.id,
+            user_fio=owner_data.get("fio", "Владелец") if owner_data else "Владелец",
+            username=callback.from_user.username or "нет",
+            action_type="add_role",
+            action_details={
+                "target_user": {
+                    "id": user_id,
+                    "fio": fio,
+                    "username": username,
+                    "role": "teacher",
+                    "city": city
+                }
+            },
+            city=city,
+            role="owner"
         )
         
         # Уведомляем пользователя

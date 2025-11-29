@@ -5,7 +5,7 @@ from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage
 from bot.config import BOT_TOKEN
 from bot.middlewares.role_middleware import RoleMiddleware
-from bot.handlers import start, owner_role_assign, student_search, add_student, report
+from bot.handlers import start, owner_role_assign, student_search, add_student, report, attendance, payment, sync, role_management, action_history
 # Настройка логирования
 logging.basicConfig(
     level=logging.INFO,
@@ -26,7 +26,12 @@ async def main():
     # Регистрируем роутеры (важен порядок - более специфичные обработчики должны быть раньше)
     dp.include_router(start.router)
     dp.include_router(owner_role_assign.router)
+    dp.include_router(role_management.router)  # Управление ролями
+    dp.include_router(action_history.router)  # История действий
     dp.include_router(add_student.router)  # Добавляем раньше, чтобы перехватывать кнопки меню
+    dp.include_router(attendance.router)  # Посещаемость
+    dp.include_router(payment.router)  # Оплата (до поиска, чтобы перехватывать запросы "Оплата")
+    dp.include_router(sync.router)  # Синхронизация
     dp.include_router(report.router)  # Отчеты
     dp.include_router(student_search.router)  # Поиск должен быть последним
 
