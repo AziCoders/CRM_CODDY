@@ -2,7 +2,7 @@
 import json
 import tempfile
 from pathlib import Path
-from typing import Dict, Optional, Any
+from typing import Dict, Optional, Any, List
 from bot.config import ROLES_FILE
 
 

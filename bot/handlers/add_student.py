@@ -1,9 +1,10 @@
 """Обработчик добавления ученика"""
 import re
 import json
+import uuid
 from datetime import date
 from typing import Dict, Any, Tuple
-from aiogram import Router, F
+from aiogram import Router, F, Bot
 from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 from bot.states.add_student_state import AddStudentState
@@ -21,16 +22,20 @@ from bot.keyboards.reply_keyboards import (
     get_teacher_menu,
     get_smm_menu
 )
+from bot.keyboards.student_notification_keyboards import get_student_processed_keyboard
 from bot.services.group_service import GroupService
 from bot.services.role_storage import RoleStorage
 from bot.services.action_logger import ActionLogger
-from bot.config import CITY_MAPPING
+from bot.config import CITY_MAPPING, BOT_TOKEN, OWNER_ID
 from src.CRUD.crud_student import NotionStudentCRUD
 
 router = Router()
 group_service = GroupService()
 role_storage = RoleStorage()
 action_logger = ActionLogger()
+
+# Хранилище для уведомлений (notification_id -> информация об уведомлении)
+notification_storage = {}
 
 # Доступные тарифы и статусы
 AVAILABLE_TARIFFS = [
@@ -363,6 +368,22 @@ async def process_student_data(message: Message, state: FSMContext, user_role: s
                 f"🏫 Группа: {group_name}\n"
                 f"🏙️ Город: {city_name}"
             )
+            
+            # Отправляем уведомления менеджерам и владельцу
+            try:
+                student_id = result.get("student_id", "")
+                print(f"📞 Вызываю функцию отправки уведомлений для ученика ID: {student_id}")
+                await send_student_notifications(
+                    student_data=student_data,
+                    group_name=group_name,
+                    city_name=city_name,
+                    student_id=student_id,
+                    added_by_user=message.from_user
+                )
+            except Exception as e:
+                print(f"❌ Ошибка при вызове send_student_notifications: {e}")
+                import traceback
+                traceback.print_exc()
 
         await state.clear()
 
@@ -386,6 +407,119 @@ async def process_student_data(message: Message, state: FSMContext, user_role: s
             f"❌ Ошибка при добавлении ученика: {str(e)}"
         )
         print(f"Ошибка добавления ученика: {e}")
+
+
+async def send_student_notifications(
+    student_data: Dict[str, Any],
+    group_name: str,
+    city_name: str,
+    student_id: str,
+    added_by_user
+):
+    """Отправляет уведомления менеджерам и владельцу о новом ученике"""
+    print(f"🔔 Начинаю отправку уведомлений о новом ученике: {student_data.get('ФИО', 'N/A')}")
+    
+    # Получаем всех менеджеров и владельца
+    all_users = role_storage.get_all_users()
+    print(f"📋 Всего пользователей в системе: {len(all_users)}")
+    
+    managers_and_owner = [
+        user for user in all_users 
+        if user.get("role") in ["manager", "owner"]
+    ]
+    print(f"👥 Найдено менеджеров и владельцев в roles.json: {len(managers_and_owner)}")
+    
+    # Добавляем владельца, если его нет в списке
+    owner_in_list = any(user.get("user_id") == OWNER_ID for user in managers_and_owner)
+    if not owner_in_list:
+        print(f"👑 Добавляю владельца (ID: {OWNER_ID}) в список получателей")
+        managers_and_owner.append({
+            "user_id": OWNER_ID,
+            "fio": "Владелец",
+            "username": "owner",
+            "role": "owner"
+        })
+    
+    print(f"📤 Всего получателей уведомлений: {len(managers_and_owner)}")
+    for user in managers_and_owner:
+        print(f"   - {user.get('fio', 'N/A')} (ID: {user.get('user_id')}, роль: {user.get('role')})")
+    
+    if not managers_and_owner:
+        print("⚠️ Нет получателей для уведомлений")
+        return
+    
+    # Создаем уникальный ID для этого уведомления
+    notification_id = str(uuid.uuid4())
+    
+    # Формируем текст уведомления
+    added_by_name = added_by_user.full_name or "Неизвестно"
+    added_by_username = added_by_user.username or "нет"
+    
+    notification_text = (
+        f"🔔 <b>Добавлен новый ученик</b>\n\n"
+        f"👤 <b>ФИО:</b> {student_data.get('ФИО', 'Не указано')}\n"
+        f"📞 <b>Номер родителя:</b> {student_data.get('Номер родителя', 'Не указано')}\n"
+        f"👨‍👩‍👧 <b>Имя родителя:</b> {student_data.get('Имя родителя', 'Не указано')}\n"
+        f"🎂 <b>Возраст:</b> {student_data.get('Возраст', 'Не указано')}\n"
+        f"📅 <b>Дата поступления:</b> {student_data.get('Дата поступления', 'Не указано')}\n"
+        f"💰 <b>Тариф:</b> {student_data.get('Тариф', 'Не указано')}\n"
+        f"📊 <b>Статус:</b> {student_data.get('Статус', 'Не указано')}\n"
+        f"🏫 <b>Группа:</b> {group_name}\n"
+        f"🏙️ <b>Город:</b> {city_name}\n\n"
+        f"➕ <b>Добавил:</b> {added_by_name} (@{added_by_username})"
+    )
+    
+    # Отправляем уведомления
+    bot = Bot(token=BOT_TOKEN)
+    notification_messages = []  # Список {user_id, message_id}
+    
+    try:
+        for user in managers_and_owner:
+            user_id = user.get("user_id")
+            if not user_id:
+                print(f"⚠️ Пропуск пользователя без ID: {user}")
+                continue
+            
+            try:
+                print(f"📨 Отправляю уведомление пользователю {user.get('fio', 'N/A')} (ID: {user_id})")
+                sent_message = await bot.send_message(
+                    chat_id=user_id,
+                    text=notification_text,
+                    reply_markup=get_student_processed_keyboard(student_id, notification_id),
+                    parse_mode="HTML"
+                )
+                print(f"✅ Уведомление успешно отправлено пользователю {user_id} (message_id: {sent_message.message_id})")
+                notification_messages.append({
+                    "user_id": user_id,
+                    "message_id": sent_message.message_id
+                })
+            except Exception as e:
+                print(f"❌ Ошибка отправки уведомления пользователю {user_id} ({user.get('fio', 'N/A')}): {e}")
+                import traceback
+                traceback.print_exc()
+                continue
+        
+        print(f"📊 Успешно отправлено уведомлений: {len(notification_messages)} из {len(managers_and_owner)}")
+        
+        # Сохраняем информацию о сообщениях
+        if notification_messages:
+            notification_storage[notification_id] = {
+                "student_id": student_id,
+                "messages": notification_messages,
+                "student_data": student_data,
+                "group_name": group_name,
+                "city_name": city_name
+            }
+            print(f"💾 Информация об уведомлении сохранена (notification_id: {notification_id})")
+        else:
+            print("⚠️ Не удалось отправить ни одного уведомления")
+    except Exception as e:
+        print(f"❌ Критическая ошибка при отправке уведомлений: {e}")
+        import traceback
+        traceback.print_exc()
+    finally:
+        await bot.session.close()
+        print("🔚 Сессия бота закрыта")
 
 
 async def cancel_add_student(message: Message, state: FSMContext, user_role: str = None):
