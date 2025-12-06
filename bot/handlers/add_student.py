@@ -2,7 +2,8 @@
 import re
 import json
 import uuid
-from datetime import date
+from datetime import date, datetime
+
 from typing import Dict, Any, Tuple
 from aiogram import Router, F, Bot
 from aiogram.types import Message, CallbackQuery
@@ -211,7 +212,7 @@ async def cmd_add_student(message: Message, state: FSMContext, user_role: str = 
             # Получаем количество мест в городе
             city_seats = group_service.get_city_seats(user_city)
             seats_text = f"\n📊 Мест в классе: {city_seats}" if city_seats > 0 else ""
-            
+
             await message.answer(
                 f"🏙️ Город: {user_city}{seats_text}\n\n"
                 f"Выберите группу:",
@@ -249,7 +250,7 @@ async def process_city_selection(
     # Получаем количество мест в городе
     city_seats = group_service.get_city_seats(city_name)
     seats_text = f"\n📊 Мест в классе: {city_seats}" if city_seats > 0 else ""
-    
+
     await callback.message.edit_text(
         f"🏙️ Город: {city_name}{seats_text}\n\n"
         f"Выберите группу:",
@@ -361,14 +362,14 @@ async def process_student_data(message: Message, state: FSMContext, user_role: s
                 city=city_name,
                 role=user_data.get("role") if user_data else None
             )
-            
+
             await message.answer(
                 f"✅ Ученик успешно добавлен!\n\n"
                 f"👤 ФИО: {student_data['ФИО']}\n"
                 f"🏫 Группа: {group_name}\n"
                 f"🏙️ Город: {city_name}"
             )
-            
+
             # Отправляем уведомления менеджерам и владельцу
             try:
                 student_id = result.get("student_id", "")
@@ -418,17 +419,17 @@ async def send_student_notifications(
 ):
     """Отправляет уведомления менеджерам и владельцу о новом ученике"""
     print(f"🔔 Начинаю отправку уведомлений о новом ученике: {student_data.get('ФИО', 'N/A')}")
-    
+
     # Получаем всех менеджеров и владельца
     all_users = role_storage.get_all_users()
     print(f"📋 Всего пользователей в системе: {len(all_users)}")
-    
+
     managers_and_owner = [
-        user for user in all_users 
+        user for user in all_users
         if user.get("role") in ["manager", "owner"]
     ]
     print(f"👥 Найдено менеджеров и владельцев в roles.json: {len(managers_and_owner)}")
-    
+
     # Добавляем владельца, если его нет в списке
     owner_in_list = any(user.get("user_id") == OWNER_ID for user in managers_and_owner)
     if not owner_in_list:
@@ -439,22 +440,22 @@ async def send_student_notifications(
             "username": "owner",
             "role": "owner"
         })
-    
+
     print(f"📤 Всего получателей уведомлений: {len(managers_and_owner)}")
     for user in managers_and_owner:
         print(f"   - {user.get('fio', 'N/A')} (ID: {user.get('user_id')}, роль: {user.get('role')})")
-    
+
     if not managers_and_owner:
         print("⚠️ Нет получателей для уведомлений")
         return
-    
+
     # Создаем уникальный ID для этого уведомления
     notification_id = str(uuid.uuid4())
-    
+
     # Формируем текст уведомления
     added_by_name = added_by_user.full_name or "Неизвестно"
     added_by_username = added_by_user.username or "нет"
-    
+
     notification_text = (
         f"🔔 <b>Добавлен новый ученик</b>\n\n"
         f"👤 <b>ФИО:</b> {student_data.get('ФИО', 'Не указано')}\n"
@@ -468,24 +469,24 @@ async def send_student_notifications(
         f"🏙️ <b>Город:</b> {city_name}\n\n"
         f"➕ <b>Добавил:</b> {added_by_name} (@{added_by_username})"
     )
-    
+
     # Отправляем уведомления
     bot = Bot(token=BOT_TOKEN)
     notification_messages = []  # Список {user_id, message_id}
-    
+
     try:
         for user in managers_and_owner:
             user_id = user.get("user_id")
             if not user_id:
                 print(f"⚠️ Пропуск пользователя без ID: {user}")
                 continue
-            
+
             try:
                 print(f"📨 Отправляю уведомление пользователю {user.get('fio', 'N/A')} (ID: {user_id})")
                 sent_message = await bot.send_message(
                     chat_id=user_id,
                     text=notification_text,
-                    reply_markup=get_student_processed_keyboard(student_id, notification_id),
+                    reply_markup=get_student_processed_keyboard(notification_id),
                     parse_mode="HTML"
                 )
                 print(f"✅ Уведомление успешно отправлено пользователю {user_id} (message_id: {sent_message.message_id})")
@@ -498,18 +499,27 @@ async def send_student_notifications(
                 import traceback
                 traceback.print_exc()
                 continue
-        
+
         print(f"📊 Успешно отправлено уведомлений: {len(notification_messages)} из {len(managers_and_owner)}")
-        
+
         # Сохраняем информацию о сообщениях
         if notification_messages:
-            notification_storage[notification_id] = {
+            short_id = notification_id[:8]
+
+            added_time = datetime.now().strftime("%d.%m.%Y %H:%M")
+
+            notification_storage[short_id] = {
+                "notification_id": notification_id,
                 "student_id": student_id,
                 "messages": notification_messages,
                 "student_data": student_data,
                 "group_name": group_name,
-                "city_name": city_name
+                "city_name": city_name,
+                "added_by_name": added_by_name,
+                "added_by_username": added_by_username,
+                "added_time": added_time
             }
+
             print(f"💾 Информация об уведомлении сохранена (notification_id: {notification_id})")
         else:
             print("⚠️ Не удалось отправить ни одного уведомления")
