@@ -15,10 +15,17 @@ role_storage = RoleStorage()
 
 def parse_search_query(text: str) -> Optional[Tuple[str, str]]:
     """
-    Парсит запрос в формате "Город <запрос>"
+    Парсит запрос в формате "Город <запрос>" или "ПОИСК <запрос>"
     Возвращает (город, запрос) или None
+    Если начинается с "ПОИСК", возвращает (None, запрос) для поиска по всем городам
     """
     text = text.strip()
+    
+    # Проверяем формат "ПОИСК <запрос>"
+    if text.upper().startswith("ПОИСК"):
+        query = text[5:].strip()  # Убираем "ПОИСК" и пробелы
+        if query:
+            return (None, query)  # None означает поиск по всем городам
     
     # Ищем город в начале строки
     for city in CITIES:
@@ -59,7 +66,7 @@ def format_full_info(student: dict) -> str:
     return "\n".join(lines)
 
 
-def format_list(students: list[dict]) -> str:
+def format_list(students: list[dict], include_phone: bool = True, all_cities: bool = False) -> str:
     """Форматирует список учеников (краткая информация)"""
     if not students:
         return "❌ Ничего не найдено"
@@ -68,13 +75,26 @@ def format_list(students: list[dict]) -> str:
     
     for i, student in enumerate(students, 1):
         fio = student.get('ФИО', 'Не указано')
+        city = student.get('Город', '')
         phone = student.get('Номер родителя', 'Не указан')
         group = student.get('group_name', 'Не указана')
         
-        lines.append(f"{i}. <b>{fio}</b>")
-        lines.append(f"   📞 {phone}")
-        lines.append(f"   🏫 {group}")
-        lines.append("")
+        if all_cities and city:
+            # Формат для поиска по всем городам: <Город> <ФИО> <НОМЕР> <Группа>
+            if include_phone:
+                lines.append(
+                    f"{i}. <code>{city} {fio}</code> {phone} <b>{group}</b>"
+                )
+            else:
+                # Для преподов: <Город> <ФИО>
+                lines.append(f"{i}. <code>{city} {fio}</code>")
+        else:
+            # Старый формат для поиска по одному городу
+            lines.append(f"{i}. <b>{fio}</b>")
+            if include_phone:
+                lines.append(f"   📞 {phone}")
+            lines.append(f"   🏫 {group}")
+            lines.append("")
     
     return "\n".join(lines)
 
@@ -107,6 +127,51 @@ async def handle_search(message: Message, state: FSMContext, user_role: str = No
     
     city_name, query = parsed
     
+    # Если city_name == None, значит поиск по всем городам (формат "ПОИСК <query>")
+    if city_name is None:
+        # Поиск по всем городам
+        user_data = role_storage.get_user(message.from_user.id)
+        user_city = None
+        
+        # Для преподавателей ограничиваем поиск только своим городом
+        if user_role == "teacher":
+            if user_data:
+                user_city = user_data.get("city", "")
+                if not user_city:
+                    await message.answer("❌ Не указан ваш город для поиска")
+                    return
+        
+        # Выполняем поиск по всем городам (или только по городу преподавателя)
+        try:
+            results = search_service.search_all_cities(query, user_city=user_city)
+            
+            if not results:
+                if user_role == "teacher":
+                    await message.answer(
+                        f"❌ Ученик не найден в городе '{user_city}' по запросу: {query}"
+                    )
+                else:
+                    await message.answer(
+                        f"❌ Ученик не найден ни в одном городе по запросу: {query}"
+                    )
+            else:
+                # Форматируем результаты
+                if user_role == "teacher":
+                    # Для преподов: <Город> <ФИО>
+                    formatted = format_list(results, include_phone=False, all_cities=True)
+                else:
+                    # Для остальных: <Город> <ФИО> <НОМЕР> <Группа>
+                    formatted = format_list(results, include_phone=True, all_cities=True)
+                await message.answer(formatted, parse_mode="HTML")
+        
+        except Exception as e:
+            await message.answer(
+                f"❌ Произошла ошибка при поиске: {str(e)}"
+            )
+            print(f"Ошибка поиска: {e}")
+        return
+    
+    # Старая логика поиска по одному городу ("Город <query>")
     # Проверяем права доступа к городу
     if user_role == "teacher":
         # Преподаватель может искать только в своем городе
@@ -132,7 +197,7 @@ async def handle_search(message: Message, state: FSMContext, user_role: str = No
             formatted = format_full_info(data)
             await message.answer(formatted, parse_mode="HTML")
         elif result_type == "list":
-            formatted = format_list(data)
+            formatted = format_list(data, include_phone=True, all_cities=False)
             await message.answer(formatted, parse_mode="HTML")
     
     except Exception as e:

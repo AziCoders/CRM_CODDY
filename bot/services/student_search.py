@@ -3,7 +3,7 @@ import json
 import re
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
-from bot.config import ROOT_DIR, CITY_MAPPING
+from bot.config import ROOT_DIR, CITY_MAPPING, CITIES
 
 
 class StudentSearchService:
@@ -173,4 +173,32 @@ class StudentSearchService:
             if results:
                 return ("list", results)
             return ("not_found", None)
+    
+    def search_all_cities(self, query: str, user_city: str = None) -> List[Dict[str, Any]]:
+        """
+        Поиск по всем городам (или только по городу пользователя для преподавателя)
+        Возвращает список результатов с указанием города
+        """
+        cities_to_search = [user_city] if user_city else CITIES
+        query_type, normalized_query = self._parse_query(query)
+        all_results = []
+        
+        for city_name in cities_to_search:
+            if query_type == "phone":
+                result = self.search_by_phone(city_name, normalized_query)
+                if result:
+                    result["Город"] = city_name
+                    all_results.append(result)
+            elif query_type == "full_name":
+                result = self.search_by_full_name(city_name, normalized_query)
+                if result:
+                    result["Город"] = city_name
+                    all_results.append(result)
+            else:  # name_or_surname
+                results = self.search_by_name_or_surname(city_name, normalized_query)
+                for result in results:
+                    result["Город"] = city_name
+                    all_results.append(result)
+        
+        return all_results
 
