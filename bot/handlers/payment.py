@@ -16,10 +16,12 @@ from bot.keyboards.payment_keyboards import (
     PaymentStudentCallback,
     PaymentPaginationCallback,
     PaymentAddCommentCallback,
+    PaymentActionCallback,
     get_payment_status_keyboard,
     get_payment_cities_keyboard,
     get_payment_students_keyboard,
-    get_only_comment_keyboard
+    get_only_comment_keyboard,
+    get_payment_actions_keyboard
 )
 from bot.config import CITIES
 from bot.keyboards.reply_keyboards import (
@@ -27,12 +29,15 @@ from bot.keyboards.reply_keyboards import (
     get_manager_menu,
     get_teacher_menu
 )
+from bot.services.reminder_service import ReminderService
+from bot.keyboards.payment_reminder_keyboards import get_payment_reminder_keyboard
 
 router = Router()
 payment_service = PaymentService()
 search_service = StudentSearchService()
 role_storage = RoleStorage()
 action_logger = ActionLogger()
+reminder_service = ReminderService()
 
 
 class PaymentQueryFilter(BaseFilter):
@@ -101,7 +106,7 @@ async def handle_payment_search(message: Message, state: FSMContext, user_role: 
     # Пропускаем кнопки меню
     menu_buttons = ["Добавить ученика", "Посещаемость", "Города", "Оплаты",
                     "Синхронизация", "Отчёты", "ИИ-отчёт", "Свободные места",
-                    "Управление ролями", "Отмена"]
+                    "Управление ролями", "Отмена", "Ближайшие"]
     if message.text in menu_buttons:
         return
 
@@ -266,6 +271,86 @@ async def process_payment_status(
         await state.clear()
 
 
+async def send_upcoming_payments_report(user_id: int, bot) -> bool:
+    """Отправляет отчет о ближайших платежах пользователю"""
+    # Получаем учеников с предстоящими оплатами (сегодня, через 1, 2, 3 дня)
+    students_by_days = reminder_service.get_students_with_upcoming_payments()
+    
+    # Проверяем, есть ли хоть один ученик в любом из периодов
+    available_categories = [days for days in [0, 1, 2, 3] if students_by_days.get(days, [])]
+    
+    if not available_categories:
+        await bot.send_message(
+            chat_id=user_id,
+            text="🔔 <b>Ближайшие платежи</b>\n\nНет учеников с предстоящими оплатами в ближайшие 3 дня",
+            parse_mode="HTML"
+        )
+        return True
+    
+    # Формируем статистику по категориям
+    day_labels = {
+        0: "Сегодня",
+        1: "Через 1 день",
+        2: "Через 2 дня",
+        3: "Через 3 дня"
+    }
+    
+    stats_lines = []
+    for days in [0, 1, 2, 3]:
+        count = len(students_by_days.get(days, []))
+        if count > 0:
+            stats_lines.append(f"{day_labels[days]}: {count} ученик(ов)")
+    
+    stats_text = "\n".join(stats_lines) if stats_lines else "Нет учеников"
+    
+    # Определяем первую категорию для отображения
+    first_category = available_categories[0]
+    
+    # Форматируем сообщение для первой категории
+    category_text = reminder_service.format_payment_reminder_category(
+        students_by_days, first_category
+    )
+    
+    # Формируем полное сообщение
+    full_message = (
+        f"🔔 <b>Ближайшие платежи</b>\n\n"
+        f"{stats_text}\n\n"
+        f"{category_text}"
+    )
+    
+    # Создаем клавиатуру с навигацией
+    keyboard = get_payment_reminder_keyboard(
+        current_category=first_category,
+        available_categories=available_categories,
+        message_id=0  # Будет обновлено после отправки
+    )
+    
+    try:
+        sent_message = await bot.send_message(
+            chat_id=user_id,
+            text=full_message,
+            parse_mode="HTML",
+            reply_markup=keyboard
+        )
+        
+        # Обновляем клавиатуру с правильным message_id
+        keyboard_with_id = get_payment_reminder_keyboard(
+            current_category=first_category,
+            available_categories=available_categories,
+            message_id=sent_message.message_id
+        )
+        
+        await bot.edit_message_reply_markup(
+            chat_id=user_id,
+            message_id=sent_message.message_id,
+            reply_markup=keyboard_with_id
+        )
+        return True
+    except Exception as e:
+        print(f"❌ Ошибка отправки отчета о ближайших платежах: {e}")
+        return False
+
+
 @router.message(F.text == "Оплаты")
 async def cmd_payments(message: Message, state: FSMContext, user_role: str = None):
     """Обработчик кнопки 'Оплаты'"""
@@ -277,6 +362,15 @@ async def cmd_payments(message: Message, state: FSMContext, user_role: str = Non
     # Проверяем доступность функции для роли
     if user_role not in ["owner", "manager", "teacher"]:
         await message.answer("❌ Оплаты доступны только для владельца, менеджера и преподавателя")
+        return
+
+    # Для владельца и менеджера показываем выбор действия
+    if user_role in ["owner", "manager"]:
+        await message.answer(
+            "💰 Оплаты\n\n"
+            "Выберите действие:",
+            reply_markup=get_payment_actions_keyboard()
+        )
         return
 
     # Для преподавателя - сразу показываем учеников его города
@@ -322,13 +416,44 @@ async def cmd_payments(message: Message, state: FSMContext, user_role: str = Non
         )
         return
 
-    # Для владельца и менеджера - сначала выбор города
-    await message.answer(
-        "💰 Оплаты\n\n"
-        "🏙️ Выберите город:",
-        reply_markup=get_payment_cities_keyboard()
-    )
-    await state.set_state(PaymentState.waiting_city)
+
+@router.callback_query(PaymentActionCallback.filter())
+async def process_payment_action(
+    callback: CallbackQuery,
+    callback_data: PaymentActionCallback,
+    state: FSMContext,
+    user_role: str = None
+):
+    """Обработчик выбора действия в разделе оплат"""
+    action = callback_data.action
+    
+    if action == "upcoming":
+        # Показываем отчет о ближайших платежах
+        from aiogram import Bot
+        from bot.config import BOT_TOKEN
+        bot = Bot(token=BOT_TOKEN)
+        
+        try:
+            success = await send_upcoming_payments_report(callback.from_user.id, bot)
+            if success:
+                await callback.answer()
+            else:
+                await callback.answer("❌ Ошибка при формировании отчета", show_alert=True)
+        except Exception as e:
+            await callback.answer(f"❌ Ошибка: {e}", show_alert=True)
+            print(f"❌ Ошибка обработки действия 'upcoming': {e}")
+        finally:
+            await bot.session.close()
+    
+    elif action == "select_student":
+        # Показываем выбор города для выбора ученика
+        await callback.message.edit_text(
+            "💰 Оплаты\n\n"
+            "🏙️ Выберите город:",
+            reply_markup=get_payment_cities_keyboard()
+        )
+        await state.set_state(PaymentState.waiting_city)
+        await callback.answer()
 
 
 @router.callback_query(PaymentCityCallback.filter(), PaymentState.waiting_city)

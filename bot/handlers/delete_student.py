@@ -2,7 +2,12 @@
 from aiogram import Router, Bot
 from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
-from bot.keyboards.student_profile_keyboards import StudentDeleteCallback, StudentPaymentCallback
+from bot.keyboards.student_profile_keyboards import (
+    StudentDeleteCallback, 
+    StudentPaymentCallback,
+    CancelDeleteCallback,
+    get_cancel_delete_keyboard
+)
 from bot.states.delete_student_state import DeleteStudentState
 from bot.states.payment_state import PaymentState
 from bot.services.student_search import StudentSearchService
@@ -182,7 +187,8 @@ async def handle_student_delete(
     await callback.message.edit_text(
         "🗑️ <b>Удаление ученика</b>\n\n"
         "📝 Пожалуйста, укажите причину ухода ученика:",
-        parse_mode="HTML"
+        parse_mode="HTML",
+        reply_markup=get_cancel_delete_keyboard()
     )
     await callback.answer()
 
@@ -196,7 +202,30 @@ async def process_delete_reason(
     """Обработка ввода причины удаления"""
     if message.text and message.text.strip().lower() in ["отмена", "❌ отмена", "/отмена"]:
         await state.clear()
-        await message.answer("❌ Удаление отменено")
+        
+        # Возвращаем пользователя в главное меню в зависимости от роли
+        if user_role == "owner":
+            await message.answer(
+                "❌ Удаление отменено.",
+                reply_markup=get_owner_menu()
+            )
+        elif user_role == "manager":
+            await message.answer(
+                "❌ Удаление отменено.",
+                reply_markup=get_manager_menu()
+            )
+        elif user_role == "teacher":
+            await message.answer(
+                "❌ Удаление отменено.",
+                reply_markup=get_teacher_menu()
+            )
+        elif user_role == "smm":
+            await message.answer(
+                "❌ Удаление отменено.",
+                reply_markup=get_smm_menu()
+            )
+        else:
+            await message.answer("❌ Удаление отменено.")
         return
     
     reason = message.text.strip() if message.text else ""
@@ -287,4 +316,47 @@ async def process_delete_reason(
         await message.answer(error_msg)
         print(f"Ошибка удаления ученика: {e}")
         await state.clear()
+
+
+@router.callback_query(CancelDeleteCallback.filter())
+async def handle_cancel_delete(
+    callback: CallbackQuery,
+    state: FSMContext,
+    user_role: str = None
+):
+    """Обработчик кнопки отмены удаления ученика"""
+    await state.clear()
+    
+    # Удаляем сообщение о запросе причины
+    try:
+        await callback.message.delete()
+    except Exception:
+        # Если не удалось удалить, редактируем
+        await callback.message.edit_text("❌ Удаление отменено.")
+    
+    # Возвращаем пользователя в главное меню в зависимости от роли
+    if user_role == "owner":
+        await callback.message.answer(
+            "👑 Главное меню:",
+            reply_markup=get_owner_menu()
+        )
+    elif user_role == "manager":
+        await callback.message.answer(
+            "👨‍💼 Главное меню:",
+            reply_markup=get_manager_menu()
+        )
+    elif user_role == "teacher":
+        await callback.message.answer(
+            "👨‍🏫 Главное меню:",
+            reply_markup=get_teacher_menu()
+        )
+    elif user_role == "smm":
+        await callback.message.answer(
+            "📱 Главное меню:",
+            reply_markup=get_smm_menu()
+        )
+    else:
+        await callback.message.answer("❌ Удаление отменено.")
+    
+    await callback.answer("Удаление отменено")
 

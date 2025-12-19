@@ -3,10 +3,11 @@ import re
 import json
 from pathlib import Path
 from typing import List, Dict, Optional, Tuple
-from datetime import datetime, time
-from bot.config import ROOT_DIR, CITY_MAPPING
+from datetime import datetime, time, timedelta
+from bot.config import ROOT_DIR, CITY_MAPPING, CITIES
 from bot.services.role_storage import RoleStorage
 from bot.services.attendance_service import AttendanceService
+from bot.services.payment_service import PaymentService
 from src.CRUD.crud_attendance import NotionAttendanceUpdater
 
 
@@ -24,14 +25,18 @@ class ReminderService:
         "вс": 6,  # Воскресенье
     }
     
-    # Время напоминаний
+    # Время напоминаний о посещаемости
     REMINDER_TIMES = [time(19, 0), time(20, 0), time(22, 0)]
+    
+    # Время напоминаний о платежах
+    PAYMENT_REMINDER_TIME = time(13, 0)
     
     def __init__(self):
         self.root_dir = ROOT_DIR
         self.role_storage = RoleStorage()
         self.attendance_service = AttendanceService()
         self.attendance_updater = NotionAttendanceUpdater()
+        self.payment_service = PaymentService()
     
     def parse_schedule(self, group_name: str) -> Optional[Tuple[List[int], str]]:
         """
@@ -246,3 +251,363 @@ class ReminderService:
                 return True
         
         return False
+    
+    def should_send_payment_reminder_now(self) -> bool:
+        """
+        Проверяет, нужно ли отправлять напоминание о платежах сейчас (13:00)
+        
+        Returns:
+            True если текущее время 13:00
+        """
+        now = datetime.now().time()
+        return now.hour == self.PAYMENT_REMINDER_TIME.hour and now.minute == self.PAYMENT_REMINDER_TIME.minute
+    
+    def _parse_payment_date(self, payment_date_str: str) -> int:
+        """Извлекает число из строки типа '27 числа' или '6 числа'"""
+        if not payment_date_str:
+            return 0
+        
+        # Убираем пробелы и ищем число
+        match = re.search(r'(\d+)', payment_date_str)
+        if match:
+            return int(match.group(1))
+        return 0
+    
+    def _should_include_student(self, payment_data: Dict[str, any], city_name: str) -> bool:
+        """
+        Проверяет, должен ли ученик быть включен в отчет о предстоящих платежах
+        
+        Args:
+            payment_data: Данные об оплате ученика
+            city_name: Название города
+        
+        Returns:
+            True если ученик должен быть включен, False иначе
+        """
+        # Получаем статус оплаты за текущий месяц
+        current_month = self.payment_service.get_current_month(city_name)
+        payments_data_dict = payment_data.get("payments_data", {})
+        
+        if not payments_data_dict:
+            # Если нет данных об оплатах, включаем ученика
+            return True
+        
+        status = payments_data_dict.get(current_month, "")
+        if isinstance(status, str):
+            status = status.strip()
+        else:
+            status = str(status).strip() if status else ""
+        
+        # Исключаем если статус: "Оплатил", "Отсрочка", "Написали"
+        # Включаем если статус: пусто, "Не оплатил" или нет отметки
+        status_lower = status.lower()
+        if status_lower in ["оплатил", "отсрочка", "написали"]:
+            return False
+        
+        # Включаем если пусто или "Не оплатил"
+        return True
+    
+    def _calculate_days_until_payment(self, payment_day: int, today: datetime) -> Optional[int]:
+        """
+        Вычисляет количество дней до ближайшей даты оплаты
+        
+        Args:
+            payment_day: День месяца оплаты (1-31)
+            today: Текущая дата
+        
+        Returns:
+            Количество дней до оплаты (0-3) или None если оплата не в ближайшие 3 дня
+        """
+        if payment_day <= 0:
+            return None
+        
+        today_date = today.date()
+        current_month = today_date.month
+        current_year = today_date.year
+        current_day = today_date.day
+        
+        # Вычисляем дату оплаты в текущем месяце
+        try:
+            payment_date_current_month = datetime(current_year, current_month, payment_day).date()
+        except ValueError:
+            # Если дня нет в этом месяце (например, 31 в феврале), пропускаем
+            return None
+        
+        # Вычисляем дату оплаты в следующем месяце
+        if current_month == 12:
+            next_month = 1
+            next_year = current_year + 1
+        else:
+            next_month = current_month + 1
+            next_year = current_year
+        
+        try:
+            payment_date_next_month = datetime(next_year, next_month, payment_day).date()
+        except ValueError:
+            # Если дня нет в следующем месяце, пропускаем
+            return None
+        
+        # Выбираем ближайшую дату оплаты
+        if payment_date_current_month >= today_date:
+            payment_date = payment_date_current_month
+        else:
+            payment_date = payment_date_next_month
+        
+        # Вычисляем разницу в днях
+        days_diff = (payment_date - today_date).days
+        
+        # Возвращаем только если оплата в ближайшие 3 дня (0, 1, 2, 3)
+        if 0 <= days_diff <= 3:
+            return days_diff
+        
+        return None
+    
+    def get_students_with_upcoming_payments(self) -> Dict[int, List[Dict[str, any]]]:
+        """
+        Получает список всех учеников с предстоящими оплатами (сегодня, через 1, 2, 3 дня)
+        
+        Returns:
+            Словарь {days: [students]} где days - количество дней до оплаты (0, 1, 2, 3)
+        """
+        students_by_days = {
+            0: [],  # Сегодня
+            1: [],  # Через 1 день
+            2: [],  # Через 2 дня
+            3: []   # Через 3 дня
+        }
+        
+        today = datetime.now()
+        
+        # Проходим по всем городам
+        for city_name in CITIES:
+            city_en = CITY_MAPPING.get(city_name, city_name)
+            payments_path = self.root_dir / f"data/{city_en}/payments.json"
+            
+            if not payments_path.exists():
+                continue
+            
+            try:
+                with open(payments_path, "r", encoding="utf-8") as f:
+                    payments_data = json.load(f)
+                
+                payments_list = payments_data.get("payments", [])
+                
+                # Получаем всех учеников города для получения данных
+                students = self.payment_service.get_city_students(city_name)
+                students_dict = {s.get("ID"): s for s in students}
+                
+                for payment in payments_list:
+                    payment_date_str = payment.get("Дата оплаты", "")
+                    if not payment_date_str:
+                        continue
+                    
+                    # Проверяем, должен ли ученик быть включен в отчет
+                    if not self._should_include_student(payment, city_name):
+                        continue
+                    
+                    payment_day = self._parse_payment_date(payment_date_str)
+                    
+                    # Вычисляем количество дней до оплаты
+                    days_until_payment = self._calculate_days_until_payment(payment_day, today)
+                    
+                    if days_until_payment is not None:
+                        student_id = payment.get("student_id", "")
+                        fio = payment.get("ФИО", "").strip()
+                        
+                        # Получаем данные ученика
+                        student_data = students_dict.get(student_id, {})
+                        if not student_data:
+                            # Если не нашли по ID, ищем по ФИО
+                            for s in students:
+                                if s.get("ФИО", "").strip().lower() == fio.lower():
+                                    student_data = s
+                                    break
+                        
+                        students_by_days[days_until_payment].append({
+                            "city": city_name,
+                            "fio": fio,
+                            "payment_date": payment_date_str,
+                            "student_id": student_id,
+                            "student_data": student_data,
+                            "payment_data": payment
+                        })
+            except Exception as e:
+                print(f"❌ Ошибка при обработке города {city_name}: {e}")
+                continue
+        
+        return students_by_days
+    
+    def format_payment_reminder_category(
+        self, 
+        students_by_days: Dict[int, List[Dict[str, any]]], 
+        category: int
+    ) -> str:
+        """
+        Форматирует сообщение о предстоящих платежах для одной категории
+        
+        Args:
+            students_by_days: Словарь {days: [students]} где days - количество дней до оплаты
+            category: Категория для отображения (0-3)
+            
+        Returns:
+            Отформатированное сообщение для категории
+        """
+        # Заголовки для каждого периода
+        day_labels = {
+            0: "Сегодня:",
+            1: "Через 1 день:",
+            2: "Через 2 дня:",
+            3: "Через 3 дня:"
+        }
+        
+        students = students_by_days.get(category, [])
+        
+        if not students:
+            return f"{day_labels[category]}\nНет учеников"
+        
+        lines = [day_labels[category]]
+        
+        # Добавляем учеников этой категории
+        for student_info in students:
+            city = student_info["city"]
+            fio = student_info["fio"]
+            payment_date = student_info["payment_date"]
+            student_id = student_info["student_id"]
+            
+            # Получаем посещаемость
+            _, attendance_stats = self.payment_service.get_student_monthly_attendance(
+                city, student_id, payment_date
+            )
+            
+            # Форматируем строку посещаемости
+            total_classes = attendance_stats.get("total", 0)
+            present = attendance_stats.get("present", 0)
+            late = attendance_stats.get("late", 0)
+            absent = attendance_stats.get("absent", 0)
+            absent_reason = attendance_stats.get("absent_reason", 0)
+            
+            attendance_str = f"{total_classes}/{present}/{late}/{absent}/{absent_reason}"
+            
+            # Форматируем дату оплаты (убираем "числа" если есть)
+            payment_date_formatted = payment_date.replace(" числа", "")
+            
+            # Форматируем строку ученика
+            student_line = f"<code>{city} {fio}</code> - {payment_date_formatted} {attendance_str}"
+            lines.append(student_line)
+        
+        return "\n".join(lines)
+    
+    def _parse_date_field(self, date_str: str) -> Optional[datetime]:
+        """
+        Парсит строку даты из поля attendance.json
+        
+        Args:
+            date_str: Строка даты в формате "дд.мм.гггг" или "дд.мм.гггг " (с пробелом)
+        
+        Returns:
+            Объект datetime или None если не удалось распарсить
+        """
+        try:
+            # Убираем пробелы
+            date_str = date_str.strip()
+            # Парсим дату
+            return datetime.strptime(date_str, "%d.%m.%Y")
+        except (ValueError, AttributeError):
+            return None
+    
+    def get_students_with_two_absent_marks(self) -> List[Dict[str, any]]:
+        """
+        Получает список учеников, у которых последние 2 отметки посещаемости - "Отсутствовал"
+        
+        Returns:
+            Список учеников: [{"city": str, "fio": str, "student_id": str, "group_name": str, "last_two_dates": [str, str]}, ...]
+            Ученики уникальны по student_id (не дублируются)
+        """
+        students_with_absent = []
+        seen_student_ids = set()  # Для предотвращения дубликатов
+        
+        # Проходим по всем городам
+        for city_name in CITIES:
+            city_en = CITY_MAPPING.get(city_name, city_name)
+            attendance_path = self.root_dir / f"data/{city_en}/attendance.json"
+            
+            if not attendance_path.exists():
+                continue
+            
+            try:
+                with open(attendance_path, "r", encoding="utf-8") as f:
+                    attendance_data = json.load(f)
+                
+                # Проходим по всем группам
+                for group_id, group_info in attendance_data.items():
+                    group_name = group_info.get("group_name", "")
+                    attendance_records = group_info.get("attendance", [])
+                    date_fields = group_info.get("fields", [])
+                    
+                    # Фильтруем только поля с датами (исключаем "№" и "ФИО")
+                    date_fields_only = [
+                        field for field in date_fields 
+                        if field not in ("№", "ФИО")
+                    ]
+                    
+                    # Парсим даты и сортируем по убыванию (самые свежие первыми)
+                    parsed_dates = []
+                    for date_str in date_fields_only:
+                        parsed_date = self._parse_date_field(date_str)
+                        if parsed_date:
+                            parsed_dates.append((parsed_date, date_str))
+                    
+                    # Сортируем по дате (от новых к старым)
+                    parsed_dates.sort(key=lambda x: x[0], reverse=True)
+                    
+                    # Проходим по каждому ученику
+                    for record in attendance_records:
+                        student_id = record.get("student_id", "")
+                        fio = record.get("ФИО", "").strip()
+                        attendance_dict = record.get("attendance", {})
+                        
+                        if not student_id or not fio:
+                            continue
+                        
+                        # Пропускаем, если уже видели этого ученика
+                        if student_id in seen_student_ids:
+                            continue
+                        
+                        # Получаем последние 2 отметки посещаемости (по дате)
+                        last_two_marks = []
+                        for parsed_date, date_str in parsed_dates:
+                            if date_str in attendance_dict:
+                                status = attendance_dict[date_str]
+                                if status:
+                                    # Нормализуем статус (убираем пробелы, приводим к нижнему регистру)
+                                    status_clean = str(status).strip().lower()
+                                    last_two_marks.append((date_str, status_clean))
+                                    
+                                    # Нам нужно только последние 2 отметки
+                                    if len(last_two_marks) >= 2:
+                                        break
+                        
+                        # Проверяем, есть ли хотя бы 2 отметки
+                        if len(last_two_marks) < 2:
+                            continue
+                        
+                        # Проверяем, обе ли последние отметки - "Отсутствовал"
+                        # Важно: "Отсутствовал по причине" НЕ считается как "Отсутствовал"
+                        first_status = last_two_marks[0][1]  # Самая последняя отметка
+                        second_status = last_two_marks[1][1]  # Предпоследняя отметка
+                        
+                        if first_status == "отсутствовал" and second_status == "отсутствовал":
+                            students_with_absent.append({
+                                "city": city_name,
+                                "fio": fio,
+                                "student_id": student_id,
+                                "group_name": group_name,
+                                "last_two_dates": [last_two_marks[0][0], last_two_marks[1][0]]
+                            })
+                            seen_student_ids.add(student_id)
+                            
+            except Exception as e:
+                print(f"❌ Ошибка при обработке города {city_name}: {e}")
+                continue
+        
+        return students_with_absent

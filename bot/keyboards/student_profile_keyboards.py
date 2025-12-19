@@ -16,6 +16,11 @@ class StudentDeleteCallback(CallbackData, prefix="sd"):
     group_id: str = ""
 
 
+class CancelDeleteCallback(CallbackData, prefix="cancel_delete"):
+    """Callback для отмены удаления ученика"""
+    pass
+
+
 def get_student_profile_keyboard(student_id: str, city: str, group_id: str = "") -> InlineKeyboardMarkup:
     """Клавиатура с кнопками Оплата и Удалить для профиля ученика"""
     from bot.config import CITY_MAPPING
@@ -40,5 +45,14 @@ def get_student_profile_keyboard(student_id: str, city: str, group_id: str = "")
         ]
     ]
     
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
+
+def get_cancel_delete_keyboard() -> InlineKeyboardMarkup:
+    """Клавиатура только с кнопкой отмены удаления"""
+    keyboard = [[InlineKeyboardButton(
+        text="❌ Отмена",
+        callback_data=CancelDeleteCallback().pack()
+    )]]
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 

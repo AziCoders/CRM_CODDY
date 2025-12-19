@@ -36,6 +36,26 @@ class PaymentAddCommentCallback(CallbackData, prefix="pay_comment"):
     pass
 
 
+class PaymentActionCallback(CallbackData, prefix="pmt_action"):
+    """Callback для выбора действия в разделе оплат"""
+    action: str  # "select_student" или "upcoming"
+
+
+def get_payment_actions_keyboard() -> InlineKeyboardMarkup:
+    """Клавиатура для выбора действия в разделе оплат"""
+    keyboard = [
+        [InlineKeyboardButton(
+            text="👤 Выбрать ученика",
+            callback_data=PaymentActionCallback(action="select_student").pack()
+        )],
+        [InlineKeyboardButton(
+            text="📅 Ближайшие платежи",
+            callback_data=PaymentActionCallback(action="upcoming").pack()
+        )]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
+
 def get_payment_cities_keyboard() -> InlineKeyboardMarkup:
     """Клавиатура для выбора города при оплате"""
     keyboard = []
