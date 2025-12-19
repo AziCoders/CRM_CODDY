@@ -31,6 +31,9 @@ class ReminderService:
     # Время напоминаний о платежах
     PAYMENT_REMINDER_TIME = time(13, 0)
     
+    # Время напоминаний о необработанных учениках
+    UNPROCESSED_STUDENTS_REMINDER_TIME = time(10, 0)
+    
     def __init__(self):
         self.root_dir = ROOT_DIR
         self.role_storage = RoleStorage()
@@ -261,6 +264,16 @@ class ReminderService:
         """
         now = datetime.now().time()
         return now.hour == self.PAYMENT_REMINDER_TIME.hour and now.minute == self.PAYMENT_REMINDER_TIME.minute
+    
+    def should_send_unprocessed_students_reminder_now(self) -> bool:
+        """
+        Проверяет, нужно ли отправлять напоминание о необработанных учениках сейчас (10:00)
+        
+        Returns:
+            True если текущее время 10:00
+        """
+        now = datetime.now().time()
+        return now.hour == self.UNPROCESSED_STUDENTS_REMINDER_TIME.hour and now.minute == self.UNPROCESSED_STUDENTS_REMINDER_TIME.minute
     
     def _parse_payment_date(self, payment_date_str: str) -> int:
         """Извлекает число из строки типа '27 числа' или '6 числа'"""

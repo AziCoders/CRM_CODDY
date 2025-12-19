@@ -21,8 +21,28 @@ class CancelDeleteCallback(CallbackData, prefix="cancel_delete"):
     pass
 
 
-def get_student_profile_keyboard(student_id: str, city: str, group_id: str = "") -> InlineKeyboardMarkup:
-    """Клавиатура с кнопками Оплата и Удалить для профиля ученика"""
+class StudentAttendanceCallback(CallbackData, prefix="sa"):
+    """Callback для просмотра посещаемости ученика"""
+    student_id: str
+    city_en: str
+
+
+class BackToStudentsCallback(CallbackData, prefix="bts"):
+    """Callback для возврата к списку учеников группы"""
+    group_id: str  # Сокращенный ID группы (первые 10 символов)
+    city_en: str  # Английское название города (сокращенное до 6 символов)
+
+
+def get_student_profile_keyboard(student_id: str, city: str, group_id: str = "", show_back: bool = False) -> InlineKeyboardMarkup:
+    """
+    Клавиатура с кнопками Оплата, Удалить и Просмотр посещаемости для профиля ученика
+    
+    Args:
+        student_id: ID ученика
+        city: Название города
+        group_id: ID группы (опционально)
+        show_back: Показывать ли кнопку "Назад" (только если профиль получен через кнопки)
+    """
     from bot.config import CITY_MAPPING
     # Используем английское название города для callback_data, сокращаем до 6 символов
     city_en = CITY_MAPPING.get(city, city)[:6]
@@ -42,8 +62,23 @@ def get_student_profile_keyboard(student_id: str, city: str, group_id: str = "")
                 text="🗑️ Удалить",
                 callback_data=StudentDeleteCallback(student_id=student_id_short, city_en=city_en, group_id=group_id_short).pack()
             )
+        ],
+        [
+            InlineKeyboardButton(
+                text="📊 Просмотр посещаемости",
+                callback_data=StudentAttendanceCallback(student_id=student_id_short, city_en=city_en).pack()
+            )
         ]
     ]
+    
+    # Добавляем кнопку "Назад" только если профиль получен через кнопки
+    if show_back and group_id_short:
+        keyboard.append([
+            InlineKeyboardButton(
+                text="◀️ Назад",
+                callback_data=BackToStudentsCallback(group_id=group_id_short, city_en=city_en).pack()
+            )
+        ])
     
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 

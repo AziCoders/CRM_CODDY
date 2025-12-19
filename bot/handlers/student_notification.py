@@ -1,11 +1,16 @@
 """Обработчик уведомлений о новых учениках"""
+from typing import Dict, Any
 from aiogram import Router, Bot
 from aiogram.types import CallbackQuery
 from bot.keyboards.student_notification_keyboards import StudentProcessedCallback
-from bot.config import BOT_TOKEN
+from bot.config import BOT_TOKEN, OWNER_ID
+from bot.services.role_storage import RoleStorage
+from bot.services.unprocessed_students_storage import UnprocessedStudentsStorage
 from datetime import datetime
 
 router = Router()
+role_storage = RoleStorage()
+unprocessed_storage = UnprocessedStudentsStorage()
 
 # Импортируем хранилище уведомлений из add_student
 from bot.handlers.add_student import notification_storage
@@ -86,8 +91,71 @@ async def process_student_notification(
             except:
                 pass
 
-        # Удаляем уведомление
+        # Удаляем уведомление из памяти
         del notification_storage[short_id]
+        
+        # Удаляем из необработанных учеников
+        unprocessed_storage.remove_unprocessed_student(short_id)
+        
+        # Отправляем уведомления преподавателям с этого города
+        await send_teacher_notifications(
+            bot=bot,
+            city_name=city_name,
+            student_data=student_data,
+            group_name=group_name
+        )
 
     finally:
         await bot.session.close()
+
+
+async def send_teacher_notifications(
+    bot: Bot,
+    city_name: str,
+    student_data: Dict[str, Any],
+    group_name: str
+):
+    """Отправляет уведомления преподавателям о новом обработанном ученике"""
+    # Получаем всех преподавателей с этого города
+    all_users = role_storage.get_all_users()
+    teachers = [
+        user for user in all_users
+        if user.get("role") == "teacher" and user.get("city") == city_name
+    ]
+    
+    if not teachers:
+        print(f"⚠️ Преподаватели не найдены для города {city_name}")
+        return
+    
+    print(f"👨‍🏫 Найдено преподавателей для города {city_name}: {len(teachers)}")
+    
+    # Формируем текст уведомления
+    notification_text = (
+        f"🎉 <b>Новый ученик в вашем городе</b>\n\n"
+        f"👤 <b>ФИО:</b> {student_data.get('ФИО', 'Не указано')}\n"
+        f"📞 <b>Номер родителя:</b> {student_data.get('Номер родителя', 'Не указано')}\n"
+        f"👨‍👩‍👧 <b>Имя родителя:</b> {student_data.get('Имя родителя', 'Не указано')}\n"
+        f"🎂 <b>Возраст:</b> {student_data.get('Возраст', 'Не указано')}\n"
+        f"📅 <b>Дата поступления:</b> {student_data.get('Дата поступления', 'Не указано')}\n"
+        f"💰 <b>Тариф:</b> {student_data.get('Тариф', 'Не указано')}\n"
+        f"📊 <b>Статус:</b> {student_data.get('Статус', 'Не указано')}\n"
+        f"🏫 <b>Группа:</b> {group_name}\n"
+        f"🏙️ <b>Город:</b> {city_name}\n\n"
+        f"✅ Ученик обработан и готов к обучению!"
+    )
+    
+    # Отправляем уведомления всем преподавателям
+    for teacher in teachers:
+        user_id = teacher.get("user_id")
+        if not user_id:
+            continue
+        
+        try:
+            await bot.send_message(
+                chat_id=user_id,
+                text=notification_text,
+                parse_mode="HTML"
+            )
+            print(f"✅ Уведомление отправлено преподавателю {user_id} ({teacher.get('fio', 'N/A')})")
+        except Exception as e:
+            print(f"❌ Ошибка отправки уведомления преподавателю {user_id}: {e}")

@@ -5,7 +5,7 @@ from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage
 from bot.config import BOT_TOKEN
 from bot.middlewares.role_middleware import RoleMiddleware
-from bot.handlers import start, owner_role_assign, student_search, add_student, report, attendance, payment, sync, role_management, action_history, free_places, student_notification, payment_report_query, delete_student, payment_reminder_callbacks, test_absence
+from bot.handlers import start, owner_role_assign, student_search, add_student, report, attendance, payment, sync, role_management, action_history, free_places, student_notification, payment_report_query, delete_student, payment_reminder_callbacks, test_absence, info_handler, student_attendance, back_to_students
 from bot.handlers.reminder_handler import ReminderHandler
 # Настройка логирования
 logging.basicConfig(
@@ -33,6 +33,9 @@ async def main():
     dp.include_router(attendance.router)  # Посещаемость
     dp.include_router(payment.router)  # Оплата (до поиска, чтобы перехватывать запросы "Оплата")
     dp.include_router(delete_student.router)  # Удаление ученика
+    dp.include_router(info_handler.router)  # Информация о городе, группах, учениках
+    dp.include_router(back_to_students.router)  # Возврат к списку учеников группы
+    dp.include_router(student_attendance.router)  # Просмотр посещаемости ученика
     dp.include_router(sync.router)  # Синхронизация
     dp.include_router(report.router)  # Отчеты
     dp.include_router(free_places.router)  # Свободные места

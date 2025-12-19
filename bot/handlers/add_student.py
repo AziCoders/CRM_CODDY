@@ -27,6 +27,7 @@ from bot.keyboards.student_notification_keyboards import get_student_processed_k
 from bot.services.group_service import GroupService
 from bot.services.role_storage import RoleStorage
 from bot.services.action_logger import ActionLogger
+from bot.services.unprocessed_students_storage import UnprocessedStudentsStorage
 from bot.config import CITY_MAPPING, BOT_TOKEN, OWNER_ID
 from src.CRUD.crud_student import NotionStudentCRUD
 
@@ -34,6 +35,7 @@ router = Router()
 group_service = GroupService()
 role_storage = RoleStorage()
 action_logger = ActionLogger()
+unprocessed_storage = UnprocessedStudentsStorage()
 
 # Хранилище для уведомлений (notification_id -> информация об уведомлении)
 notification_storage = {}
@@ -510,6 +512,8 @@ async def send_student_notifications(
     added_by_name = added_by_user.full_name or "Неизвестно"
     added_by_username = added_by_user.username or "нет"
 
+    added_time = datetime.now().strftime("%d.%m.%Y %H:%M")
+    
     notification_text = (
         f"🔔 <b>Добавлен новый ученик</b>\n\n"
         f"👤 <b>ФИО:</b> {student_data.get('ФИО', 'Не указано')}\n"
@@ -521,7 +525,8 @@ async def send_student_notifications(
         f"📊 <b>Статус:</b> {student_data.get('Статус', 'Не указано')}\n"
         f"🏫 <b>Группа:</b> {group_name}\n"
         f"🏙️ <b>Город:</b> {city_name}\n\n"
-        f"➕ <b>Добавил:</b> {added_by_name} (@{added_by_username})"
+        f"➕ <b>Добавил:</b> {added_by_name} (@{added_by_username})\n"
+        f"⏰ <b>Добавлен:</b> @{added_by_username} ({added_time})"
     )
 
     # Отправляем уведомления
@@ -545,6 +550,17 @@ async def send_student_notifications(
                 )
                 print(
                     f"✅ Уведомление успешно отправлено пользователю {user_id} (message_id: {sent_message.message_id})")
+                
+                # Закрепляем сообщение
+                try:
+                    await bot.pin_chat_message(
+                        chat_id=user_id,
+                        message_id=sent_message.message_id
+                    )
+                    print(f"📌 Сообщение закреплено для пользователя {user_id}")
+                except Exception as pin_error:
+                    print(f"⚠️ Не удалось закрепить сообщение для пользователя {user_id}: {pin_error}")
+                
                 notification_messages.append({
                     "user_id": user_id,
                     "message_id": sent_message.message_id
@@ -561,8 +577,6 @@ async def send_student_notifications(
         if notification_messages:
             short_id = notification_id[:8]
 
-            added_time = datetime.now().strftime("%d.%m.%Y %H:%M")
-
             notification_storage[short_id] = {
                 "notification_id": notification_id,
                 "student_id": student_id,
@@ -574,6 +588,19 @@ async def send_student_notifications(
                 "added_by_username": added_by_username,
                 "added_time": added_time
             }
+
+            # Сохраняем необработанного ученика для ежедневных напоминаний
+            unprocessed_storage.add_unprocessed_student(short_id, {
+                "notification_id": notification_id,
+                "student_id": student_id,
+                "student_data": student_data,
+                "group_name": group_name,
+                "city_name": city_name,
+                "added_by_name": added_by_name,
+                "added_by_username": added_by_username,
+                "added_time": added_time,
+                "messages": notification_messages
+            })
 
             print(f"💾 Информация об уведомлении сохранена (notification_id: {notification_id})")
         else:

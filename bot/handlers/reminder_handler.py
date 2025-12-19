@@ -1,17 +1,20 @@
 """Обработчик напоминаний о посещаемости"""
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta
+from typing import Dict, Any
 from aiogram import Bot
 from aiogram.types import CallbackQuery
 from aiogram.fsm.context import FSMContext
 from bot.services.reminder_service import ReminderService
 from bot.services.role_storage import RoleStorage
+from bot.services.unprocessed_students_storage import UnprocessedStudentsStorage
 from bot.config import BOT_TOKEN, OWNER_ID
 from bot.keyboards.payment_reminder_keyboards import (
     PaymentReminderCategoryCallback,
     PaymentReminderRefreshCallback,
     get_payment_reminder_keyboard
 )
+from bot.handlers.add_student import notification_storage
 
 
 class ReminderHandler:
@@ -21,9 +24,11 @@ class ReminderHandler:
         self.bot = bot
         self.reminder_service = ReminderService()
         self.role_storage = RoleStorage()
+        self.unprocessed_storage = UnprocessedStudentsStorage()
         self.sent_reminders = set()  # Хранит уже отправленные напоминания (teacher_user_id, group_id, date)
         self.sent_payment_reminders = set()  # Хранит уже отправленные напоминания о платежах (date_str)
         self.sent_absence_reminders = set()  # Хранит уже отправленные напоминания об отсутствиях (date_str)
+        self.sent_unprocessed_reminders = set()  # Хранит уже отправленные напоминания о необработанных учениках (date_str)
     
     def _get_reminder_key(self, teacher_user_id: int, group_id: str, date_str: str) -> tuple:
         """Создает ключ для отслеживания отправленных напоминаний"""
@@ -331,6 +336,112 @@ class ReminderHandler:
                 if date_str >= week_ago
             }
     
+    async def send_unprocessed_students_reminder(self):
+        """Отправляет ежедневные напоминания о необработанных учениках менеджерам и владельцу"""
+        # Проверяем, нужно ли отправлять напоминание (каждый день в 10:00)
+        if not self.reminder_service.should_send_unprocessed_students_reminder_now():
+            return
+        
+        # Проверяем, не отправляли ли уже сегодня
+        today_str = datetime.now().strftime("%Y-%m-%d")
+        if today_str in self.sent_unprocessed_reminders:
+            return
+        
+        # Получаем всех необработанных учеников
+        unprocessed_students = self.unprocessed_storage.get_all_unprocessed()
+        
+        if not unprocessed_students:
+            # Отмечаем, что проверка была выполнена, даже если учеников нет
+            self.sent_unprocessed_reminders.add(today_str)
+            return
+        
+        # Получаем всех менеджеров и владельца
+        all_users = self.role_storage.get_all_users()
+        managers_and_owner = [
+            user for user in all_users
+            if user.get("role") in ["manager", "owner"]
+        ]
+        
+        # Добавляем владельца, если его нет в списке
+        owner_in_list = any(user.get("user_id") == OWNER_ID for user in managers_and_owner)
+        if not owner_in_list:
+            managers_and_owner.append({
+                "user_id": OWNER_ID,
+                "fio": "Владелец",
+                "username": "owner",
+                "role": "owner"
+            })
+        
+        # Группируем по городам
+        students_by_city = {}
+        for student in unprocessed_students:
+            city = student.get("city_name", "Неизвестно")
+            if city not in students_by_city:
+                students_by_city[city] = []
+            students_by_city[city].append(student)
+        
+        # Формируем сообщение
+        message_lines = [
+            f"🔔 <b>Напоминание о необработанных учениках</b>\n\n",
+            f"⚠️ У вас есть <b>{len(unprocessed_students)}</b> необработанных ученик(ов):\n\n"
+        ]
+        
+        for city, city_students in sorted(students_by_city.items()):
+            message_lines.append(f"<b>🏙️ {city}:</b>")
+            for student in city_students:
+                student_data = student.get("student_data", {})
+                group_name = student.get("group_name", "Неизвестно")
+                added_time = student.get("added_time", "Неизвестно")
+                fio = student_data.get("ФИО", "Не указано")
+                message_lines.append(
+                    f"• <code>{fio}</code> ({group_name})\n"
+                    f"  Добавлен: {added_time}"
+                )
+            message_lines.append("")
+        
+        message_lines.append("📞 <b>Пожалуйста, обработайте этих учеников.</b>")
+        
+        full_message = "\n".join(message_lines)
+        
+        # Отправляем уведомления
+        success_count = 0
+        for user in managers_and_owner:
+            user_id = user.get("user_id")
+            if not user_id:
+                continue
+            
+            try:
+                sent_message = await self.bot.send_message(
+                    chat_id=user_id,
+                    text=full_message,
+                    parse_mode="HTML"
+                )
+                
+                # Закрепляем сообщение
+                try:
+                    await self.bot.pin_chat_message(
+                        chat_id=user_id,
+                        message_id=sent_message.message_id
+                    )
+                except Exception as pin_error:
+                    print(f"⚠️ Не удалось закрепить сообщение для пользователя {user_id}: {pin_error}")
+                
+                success_count += 1
+                print(f"✅ Напоминание о необработанных учениках отправлено пользователю {user_id} ({user.get('fio', 'N/A')})")
+            except Exception as e:
+                print(f"❌ Ошибка отправки напоминания о необработанных учениках пользователю {user_id}: {e}")
+        
+        # Отмечаем, что напоминание отправлено
+        self.sent_unprocessed_reminders.add(today_str)
+        
+        # Очищаем старые записи (старше недели)
+        if len(self.sent_unprocessed_reminders) > 10:
+            week_ago = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
+            self.sent_unprocessed_reminders = {
+                date_str for date_str in self.sent_unprocessed_reminders
+                if date_str >= week_ago
+            }
+    
     async def run_reminder_loop(self):
         """Запускает цикл проверки напоминаний"""
         while True:
@@ -338,6 +449,7 @@ class ReminderHandler:
                 await self.check_and_send_reminders()
                 await self.send_payment_reminder()
                 await self.send_absence_reminder()
+                await self.send_unprocessed_students_reminder()
             except Exception as e:
                 print(f"❌ Ошибка в цикле напоминаний: {e}")
             
