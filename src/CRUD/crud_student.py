@@ -21,6 +21,7 @@
 """
 
 import json
+import os
 from typing import Any, Dict, Optional, Tuple
 
 from src.config import ROOT_DIR, get_notion_client
@@ -314,73 +315,247 @@ class NotionStudentCRUD:
 
         await self.notion.pages.update(page_id=student_id, properties=props)
 
-    async def delete_student(self, student_id: str, reason: str) -> None:
+    async def delete_student(self, student_id: str, reason: str, group_id: str = None) -> Dict[str, Any]:
         """
         Переносит ученика в таблицу 'Ушедшие ученики',
+        удаляет из посещаемости и оплат,
         устанавливает статус 'Не обучается',
         записывает пользовательский комментарий (reason),
         и архивирует запись в основной таблице.
+        
+        Returns:
+            Dict с результатами операций:
+            {
+                "added_to_left": bool,
+                "archived_from_students": bool,
+                "deleted_from_attendance": bool,
+                "deleted_from_payments": bool,
+                "errors": List[str]
+            }
         """
+        from src.CRUD.crud_attendance import NotionAttendanceUpdater
+        from src.CRUD.crud_payment import NotionPaymentUpdater
 
-        import os
+        result = {
+            "added_to_left": False,
+            "archived_from_students": False,
+            "deleted_from_attendance": False,
+            "deleted_from_payments": False,
+            "errors": []
+        }
 
         left_db_id = os.getenv("LEFT_STUDENTS_DB_ID")
         if not left_db_id:
-            raise ValueError("❌ В .env отсутствует LEFT_STUDENTS_DB_ID")
+            result["errors"].append("❌ В .env отсутствует LEFT_STUDENTS_DB_ID")
+            return result
 
-        # === 1. Загружаем страницу ученика ===
-        page = await self.notion.pages.retrieve(student_id)
-        props = page["properties"]
+        try:
+            # === 1. Загружаем страницу ученика ===
+            page = await self.notion.pages.retrieve(student_id)
+            props = page["properties"]
 
-        fio = props["ФИО"]["title"][0]["plain_text"] if props["ФИО"]["title"] else ""
-        phone = props["Номер родителя"]["phone_number"]
-        parent_name = props["Имя родителя"]["rich_text"][0]["plain_text"] if props["Имя родителя"]["rich_text"] else ""
-        city = props["Город"]["select"]["name"] if props["Город"]["select"] else ""
-        tarif = props["Тариф"]["select"]["name"] if props["Тариф"]["select"] else ""
-        date_start = props["Дата поступления"]["date"]["start"] if props["Дата поступления"]["date"] else None
-        age = props["Возраст"]["number"]
-        link_wa_tg = props["Ссылка на WA, TG"]
+            fio = props["ФИО"]["title"][0]["plain_text"] if props["ФИО"]["title"] else ""
+            phone = props["Номер родителя"]["phone_number"] if props["Номер родителя"].get("phone_number") else ""
+            parent_name = props["Имя родителя"]["rich_text"][0]["plain_text"] if props["Имя родителя"]["rich_text"] else ""
+            city = props["Город"]["select"]["name"] if props["Город"]["select"] else ""
+            tarif = props["Тариф"]["select"]["name"] if props["Тариф"]["select"] else ""
+            date_start = props["Дата поступления"]["date"]["start"] if props["Дата поступления"]["date"] else None
+            age = props["Возраст"]["number"] if props["Возраст"].get("number") else None
+            # Обрабатываем поле "Ссылка на WA, TG"
+            link_wa_tg_prop = props.get("Ссылка на WA, TG", {})
+            if link_wa_tg_prop and link_wa_tg_prop.get("rich_text"):
+                link_wa_tg = build_rich_text(link_wa_tg_prop["rich_text"][0]["plain_text"] if link_wa_tg_prop["rich_text"] else "")
+            else:
+                link_wa_tg = build_rich_text("")
 
-        # === 2. Вытащим название группы из students.json ===
-        group_name = ""
-        if self.students_path.exists():
-            with open(self.students_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                for gid, group in data.items():
-                    for st in group.get("students", []):
-                        if st["ID"] == student_id:
-                            group_name = group.get("group_name", "")
+            # === 2. Вытащим название группы из students.json ===
+            group_name = ""
+            found_group_id = None
+            if self.students_path.exists():
+                with open(self.students_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    for gid, group in data.items():
+                        for st in group.get("students", []):
+                            if st["ID"] == student_id:
+                                group_name = group.get("group_name", "")
+                                found_group_id = gid
+                                break
+                        if found_group_id:
                             break
 
-        # === 3. Формируем properties для таблицы ушедших ===
-        # Статус — всегда "Не обучается"
-        left_props = {
-            "ФИО": build_title(fio),
-            "Возраст": build_number(age),
-            "Номер родителя": build_phone(phone),
-            "Имя родителя": build_rich_text(parent_name),
-            "Город": build_select(city),
-            "Тариф": build_select(tarif),
-            "Дата поступления": build_date(date_start),
-            "Группа": build_rich_text(group_name),
-            "Ссылка на WA, TG": link_wa_tg,
-            "Комментарий": build_rich_text(reason),  # 🔥 пользовательский комментарий
-            "Статус": build_select("Не обучается"),  # 🔥 статус фиксированный
-        }
+            # Используем переданный group_id или найденный
+            if not found_group_id and group_id:
+                found_group_id = group_id
 
-        # === 4. Создаём запись в таблице ушедших ===
-        await self.notion.pages.create(
-            parent={"database_id": left_db_id},
-            properties=left_props
-        )
+            # === 3. Формируем properties для таблицы ушедших ===
+            # Статус — всегда "Не обучается"
+            left_props = {
+                "ФИО": build_title(fio),
+                "Возраст": build_number(age) if age else None,
+                "Номер родителя": build_phone(phone) if phone else None,
+                "Имя родителя": build_rich_text(parent_name),
+                "Город": build_select(city) if city else None,
+                "Тариф": build_select(tarif) if tarif else None,
+                "Дата поступления": build_date(date_start) if date_start else None,
+                "Группа": build_rich_text(group_name),
+                "Ссылка на WA, TG": link_wa_tg,
+                "Комментарий": build_rich_text(reason),  # 🔥 пользовательский комментарий
+                "Статус": build_select("Не обучается"),  # 🔥 статус фиксированный
+            }
 
-        # === 5. Удаляем ученика из основной таблицы (архивируем) ===
-        await self.notion.pages.update(
-            page_id=student_id,
-            archived=True
-        )
+            # Убираем None значения
+            left_props = {k: v for k, v in left_props.items() if v is not None}
 
-        print(f"🟡 Ученик '{fio}' перенесён в 'Ушедшие ученики' по причине: {reason}")
+            # === 4. Создаём запись в таблице ушедших ===
+            try:
+                await self.notion.pages.create(
+                    parent={"database_id": left_db_id},
+                    properties=left_props
+                )
+                result["added_to_left"] = True
+                print(f"✅ Ученик '{fio}' добавлен в 'Ушедшие ученики'")
+            except Exception as e:
+                error_msg = f"❌ Ошибка добавления в 'Ушедшие ученики': {e}"
+                result["errors"].append(error_msg)
+                print(error_msg)
+
+            # === 5. Удаляем из посещаемости ===
+            if found_group_id:
+                try:
+                    attendance_db_id = self._get_attendance_db_id(found_group_id)
+                    attendance_updater = NotionAttendanceUpdater()
+                    
+                    # Ищем все записи посещаемости для этого ученика
+                    response = await self.notion.databases.query(
+                        database_id=attendance_db_id,
+                        filter={
+                            "property": "ФИО",
+                            "relation": {"contains": student_id},
+                        },
+                    )
+                    
+                    # Архивируем все найденные записи
+                    for record in response["results"]:
+                        try:
+                            await self.notion.pages.update(
+                                page_id=record["id"],
+                                archived=True
+                            )
+                        except Exception as e:
+                            result["errors"].append(f"❌ Ошибка удаления записи посещаемости {record['id']}: {e}")
+                    
+                    if response["results"]:
+                        result["deleted_from_attendance"] = True
+                        print(f"✅ Удалено записей посещаемости: {len(response['results'])}")
+                except ValueError as e:
+                    # Если группа не найдена - это не критично, просто пропускаем
+                    error_msg = f"⚠️ Не удалось найти группу для удаления из посещаемости: {e}"
+                    result["errors"].append(error_msg)
+                    print(error_msg)
+                except Exception as e:
+                    error_msg = f"❌ Ошибка удаления из посещаемости: {e}"
+                    result["errors"].append(error_msg)
+                    print(error_msg)
+            else:
+                # Пробуем найти группу через все группы города
+                try:
+                    # Ищем во всех группах города
+                    for gid in self.structure.keys():
+                        try:
+                            attendance_db_id = self._get_attendance_db_id(gid)
+                            response = await self.notion.databases.query(
+                                database_id=attendance_db_id,
+                                filter={
+                                    "property": "ФИО",
+                                    "relation": {"contains": student_id},
+                                },
+                            )
+                            if response["results"]:
+                                # Нашли группу, удаляем записи
+                                for record in response["results"]:
+                                    try:
+                                        await self.notion.pages.update(
+                                            page_id=record["id"],
+                                            archived=True
+                                        )
+                                    except Exception as e:
+                                        result["errors"].append(f"❌ Ошибка удаления записи посещаемости {record['id']}: {e}")
+                                
+                                result["deleted_from_attendance"] = True
+                                print(f"✅ Удалено записей посещаемости: {len(response['results'])}")
+                                break
+                        except (ValueError, Exception):
+                            continue
+                except Exception as e:
+                    error_msg = f"⚠️ Не удалось удалить из посещаемости: {e}"
+                    result["errors"].append(error_msg)
+                    print(error_msg)
+
+            # === 6. Удаляем из оплат ===
+            try:
+                payment_updater = NotionPaymentUpdater(self.city_name)
+                
+                # Ищем записи в таблице оплат по ФИО
+                fio_for_search = fio
+                response = await self.notion.databases.query(
+                    database_id=payment_updater.database_id,
+                    filter={
+                        "property": "ФИО",
+                        "rich_text": {"equals": fio_for_search},
+                    },
+                )
+                
+                # Если не нашли по ФИО, пробуем по телефону
+                if not response["results"] and phone:
+                    phone_digits = "".join(filter(str.isdigit, phone))
+                    if phone_digits:
+                        response = await self.notion.databases.query(
+                            database_id=payment_updater.database_id,
+                            filter={
+                                "property": "Phone",
+                                "phone_number": {"contains": phone_digits[-10:]},
+                            },
+                        )
+                
+                # Архивируем все найденные записи
+                for record in response["results"]:
+                    try:
+                        await self.notion.pages.update(
+                            page_id=record["id"],
+                            archived=True
+                        )
+                    except Exception as e:
+                        result["errors"].append(f"❌ Ошибка удаления записи оплаты {record['id']}: {e}")
+                
+                if response["results"]:
+                    result["deleted_from_payments"] = True
+                    print(f"✅ Удалено записей оплат: {len(response['results'])}")
+            except Exception as e:
+                error_msg = f"❌ Ошибка удаления из оплат: {e}"
+                result["errors"].append(error_msg)
+                print(error_msg)
+
+            # === 7. Удаляем ученика из основной таблицы (архивируем) ===
+            try:
+                await self.notion.pages.update(
+                    page_id=student_id,
+                    archived=True
+                )
+                result["archived_from_students"] = True
+                print(f"✅ Ученик '{fio}' архивирован из основной таблицы")
+            except Exception as e:
+                error_msg = f"❌ Ошибка архивирования из основной таблицы: {e}"
+                result["errors"].append(error_msg)
+                print(error_msg)
+
+            print(f"🟡 Ученик '{fio}' обработан. Результаты: {result}")
+            return result
+
+        except Exception as e:
+            error_msg = f"❌ Критическая ошибка при удалении ученика: {e}"
+            result["errors"].append(error_msg)
+            print(error_msg)
+            return result
 
     async def close(self):
         pass

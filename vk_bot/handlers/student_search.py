@@ -64,7 +64,7 @@ def format_list(students: list[dict]) -> str:
         phone = student.get('Номер родителя', 'Не указан')
         group = student.get('group_name', 'Не указана')
         
-        lines.append(f"{i}. {fio}")
+        lines.append(f"{i}. <code>{fio}</code>")
         lines.append(f"   📞 {phone}")
         lines.append(f"   🏫 {group}")
         lines.append("")

@@ -90,7 +90,7 @@ def format_list(students: list[dict], include_phone: bool = True, all_cities: bo
                 lines.append(f"{i}. <code>{city} {fio}</code>")
         else:
             # Старый формат для поиска по одному городу
-            lines.append(f"{i}. <b>{fio}</b>")
+            lines.append(f"{i}. <code>{fio}</code>")
             if include_phone:
                 lines.append(f"   📞 {phone}")
             lines.append(f"   🏫 {group}")
@@ -155,14 +155,25 @@ async def handle_search(message: Message, state: FSMContext, user_role: str = No
                         f"❌ Ученик не найден ни в одном городе по запросу: {query}"
                     )
             else:
-                # Форматируем результаты
-                if user_role == "teacher":
-                    # Для преподов: <Город> <ФИО>
-                    formatted = format_list(results, include_phone=False, all_cities=True)
+                # Если найден один ученик - показываем профиль с кнопками
+                if len(results) == 1:
+                    student = results[0]
+                    formatted = format_full_info(student)
+                    from bot.keyboards.student_profile_keyboards import get_student_profile_keyboard
+                    student_id = student.get("ID", "")
+                    city = student.get("Город", "")
+                    group_id = student.get("group_id", "")
+                    keyboard = get_student_profile_keyboard(student_id, city, group_id)
+                    await message.answer(formatted, parse_mode="HTML", reply_markup=keyboard)
                 else:
-                    # Для остальных: <Город> <ФИО> <НОМЕР> <Группа>
-                    formatted = format_list(results, include_phone=True, all_cities=True)
-                await message.answer(formatted, parse_mode="HTML")
+                    # Форматируем результаты
+                    if user_role == "teacher":
+                        # Для преподов: <Город> <ФИО>
+                        formatted = format_list(results, include_phone=False, all_cities=True)
+                    else:
+                        # Для остальных: <Город> <ФИО> <НОМЕР> <Группа>
+                        formatted = format_list(results, include_phone=True, all_cities=True)
+                    await message.answer(formatted, parse_mode="HTML")
         
         except Exception as e:
             await message.answer(
@@ -195,7 +206,12 @@ async def handle_search(message: Message, state: FSMContext, user_role: str = No
             )
         elif result_type == "full_info":
             formatted = format_full_info(data)
-            await message.answer(formatted, parse_mode="HTML")
+            # Добавляем кнопки Оплата и Удалить
+            from bot.keyboards.student_profile_keyboards import get_student_profile_keyboard
+            student_id = data.get("ID", "")
+            group_id = data.get("group_id", "")
+            keyboard = get_student_profile_keyboard(student_id, city_name, group_id)
+            await message.answer(formatted, parse_mode="HTML", reply_markup=keyboard)
         elif result_type == "list":
             formatted = format_list(data, include_phone=True, all_cities=False)
             await message.answer(formatted, parse_mode="HTML")

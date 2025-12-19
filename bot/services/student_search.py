@@ -98,6 +98,7 @@ class StudentSearchService:
                     result = student.copy()
                     result["group_name"] = group_data.get("group_name", "")
                     result["group_id"] = group_id
+                    result["Город"] = city_name
                     return result
         
         return None
@@ -114,6 +115,7 @@ class StudentSearchService:
                     result = student.copy()
                     result["group_name"] = group_data.get("group_name", "")
                     result["group_id"] = group_id
+                    result["Город"] = city_name
                     return result
         
         return None
@@ -142,8 +144,17 @@ class StudentSearchService:
                         "ФИО": fio,
                         "Номер родителя": student.get("Номер родителя", ""),
                         "group_name": group_name,
+                        "group_id": group_id,
                         "ID": student.get("ID", ""),
-                        "student_url": student.get("student_url", "")
+                        "student_url": student.get("student_url", ""),
+                        "Город": student.get("Город", city_name),
+                        "Возраст": student.get("Возраст", ""),
+                        "Дата поступления": student.get("Дата поступления", ""),
+                        "Имя родителя": student.get("Имя родителя", ""),
+                        "Тариф": student.get("Тариф", ""),
+                        "Статус": student.get("Статус", ""),
+                        "Ссылка на WA, TG": student.get("Ссылка на WA, TG", ""),
+                        "Комментарий": student.get("Комментарий", "")
                     })
         
         return results

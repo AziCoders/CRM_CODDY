@@ -80,15 +80,15 @@ def parse_student_data(text: str) -> Dict[str, Any]:
     """
     data = {}
     text = text.strip()
-    
+
     # Разбиваем текст на строки
     lines = text.split('\n')
-    
+
     for line in lines:
         line = line.strip()
         if not line:
             continue
-            
+
         # Ищем двоеточие для разделения ключа и значения
         if ':' in line:
             # Разделяем по первому двоеточию
@@ -96,11 +96,11 @@ def parse_student_data(text: str) -> Dict[str, Any]:
             if len(parts) == 2:
                 key = parts[0].strip()
                 value = parts[1].strip()
-                
+
                 # Пропускаем пустые ключи
                 if not key:
                     continue
-                
+
                 # Обработка разных типов данных
                 if key == "Возраст":
                     if value:
@@ -321,13 +321,12 @@ async def process_group_selection(
         f"🏙️ Город: {city_name}\n"
         f"🏫 Группа: {group_name}\n\n"
         f"⚠️ Обязательные поля: ФИО, Возраст, Номер родителя\n"
-        f"💡 Нажмите 'Отмена' для отмены добавления"
+        f"💡 Нажмите 'Отмена' для отмены добавления\n\n"
+        f"📝 Скопируйте нижнее смс и замените все нужные данные\n"
     )
 
     # Второе сообщение - шаблон для заполнения
     second_message = (
-        f"Скопируйте нижнее смс и замените все нужные данные\n"
-        f"📝 Введите данные ученика в следующем формате:\n\n"
         f"{get_template_message()}"
     )
 
@@ -336,13 +335,13 @@ async def process_group_selection(
         parse_mode='HTML',
         reply_markup=get_cancel_keyboard()
     )
-    
+
     # Отправляем второе сообщение с шаблоном
     await callback.message.answer(
         second_message,
         parse_mode='HTML'
     )
-    
+
     await callback.answer()
     await state.set_state(AddStudentState.waiting_data)
 
@@ -403,7 +402,8 @@ async def process_student_data(message: Message, state: FSMContext, user_role: s
             user_data = role_storage.get_user(message.from_user.id)
             action_logger.log_action(
                 user_id=message.from_user.id,
-                user_fio=user_data.get("fio", message.from_user.full_name) if user_data else message.from_user.full_name,
+                user_fio=user_data.get("fio",
+                                       message.from_user.full_name) if user_data else message.from_user.full_name,
                 username=message.from_user.username or "нет",
                 action_type="add_student",
                 action_details={
@@ -465,11 +465,11 @@ async def process_student_data(message: Message, state: FSMContext, user_role: s
 
 
 async def send_student_notifications(
-    student_data: Dict[str, Any],
-    group_name: str,
-    city_name: str,
-    student_id: str,
-    added_by_user
+        student_data: Dict[str, Any],
+        group_name: str,
+        city_name: str,
+        student_id: str,
+        added_by_user
 ):
     """Отправляет уведомления менеджерам и владельцу о новом ученике"""
     print(f"🔔 Начинаю отправку уведомлений о новом ученике: {student_data.get('ФИО', 'N/A')}")
@@ -543,7 +543,8 @@ async def send_student_notifications(
                     reply_markup=get_student_processed_keyboard(notification_id),
                     parse_mode="HTML"
                 )
-                print(f"✅ Уведомление успешно отправлено пользователю {user_id} (message_id: {sent_message.message_id})")
+                print(
+                    f"✅ Уведомление успешно отправлено пользователю {user_id} (message_id: {sent_message.message_id})")
                 notification_messages.append({
                     "user_id": user_id,
                     "message_id": sent_message.message_id
