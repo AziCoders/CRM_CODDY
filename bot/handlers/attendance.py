@@ -19,6 +19,7 @@ from bot.services.attendance_service import AttendanceService
 from bot.services.group_service import GroupService
 from bot.services.role_storage import RoleStorage
 from bot.services.action_logger import ActionLogger
+from bot.services.smm_tracking_service import SMMTrackingService
 from bot.keyboards.reply_keyboards import (
     get_owner_menu,
     get_manager_menu,
@@ -30,6 +31,7 @@ attendance_service = AttendanceService()
 group_service = GroupService()
 role_storage = RoleStorage()
 action_logger = ActionLogger()
+smm_tracking = SMMTrackingService()
 
 
 @router.message(F.text == "Посещаемость")
@@ -282,9 +284,27 @@ async def process_attendance_confirm(
     if success:
         marked_count = len(marked_attendance)
         
+        # Проверяем первое посещение для учеников, привлеченных SMM
+        # Отправляем уведомления только для тех, кто присутствовал (status = 1)
+        from datetime import date
+        today = date.today().strftime("%Y-%m-%d")
+        
+        for student_id, status_index in marked_attendance.items():
+            if status_index == 1:  # Присутствовал
+                is_first_attendance = smm_tracking.mark_first_attendance(student_id, today)
+                if is_first_attendance:
+                    # Получаем данные ученика для уведомления
+                    student_info = smm_tracking.get_student_info(student_id)
+                    if student_info:
+                        await send_smm_attendance_notification(
+                            student_id,
+                            student_info.get("student_fio", "Неизвестно"),
+                            city_name,
+                            group_name
+                        )
+        
         # Логируем действие
         user_data = role_storage.get_user(callback.from_user.id)
-        from datetime import date
         action_logger.log_action(
             user_id=callback.from_user.id,
             user_fio=user_data.get("fio", callback.from_user.full_name) if user_data else callback.from_user.full_name,
@@ -330,4 +350,44 @@ async def process_attendance_confirm(
         )
     
     await state.clear()
+
+
+async def send_smm_attendance_notification(
+    student_id: str,
+    student_fio: str,
+    city_name: str,
+    group_name: str
+):
+    """Отправляет уведомление SMM о первом посещении ученика"""
+    try:
+        student_info = smm_tracking.get_student_info(student_id)
+        if not student_info:
+            return
+        
+        smm_user_id = student_info.get("added_by_user_id")
+        if not smm_user_id:
+            return
+        
+        from aiogram import Bot
+        from bot.config import BOT_TOKEN
+        
+        bot = Bot(token=BOT_TOKEN)
+        
+        notification_text = (
+            f"✅ <b>Первое посещение!</b>\n\n"
+            f"👤 Ученик: {student_fio}\n"
+            f"🏙️ Город: {city_name}\n"
+            f"🏫 Группа: {group_name}\n\n"
+            f"🎉 Ученик, которого вы привлекли, сегодня пришел на первое занятие!"
+        )
+        
+        await bot.send_message(
+            chat_id=smm_user_id,
+            text=notification_text,
+            parse_mode="HTML"
+        )
+        
+        await bot.session.close()
+    except Exception as e:
+        print(f"❌ Ошибка отправки уведомления SMM о первом посещении: {e}")
 

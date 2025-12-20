@@ -14,6 +14,7 @@ from bot.services.student_search import StudentSearchService
 from bot.services.payment_service import PaymentService
 from bot.services.role_storage import RoleStorage
 from bot.services.action_logger import ActionLogger
+from bot.services.smm_tracking_service import SMMTrackingService
 from bot.config import CITY_MAPPING
 from src.CRUD.crud_student import NotionStudentCRUD
 from bot.keyboards.reply_keyboards import (
@@ -28,6 +29,7 @@ search_service = StudentSearchService()
 payment_service = PaymentService()
 role_storage = RoleStorage()
 action_logger = ActionLogger()
+smm_tracking = SMMTrackingService()
 
 
 @router.callback_query(StudentPaymentCallback.filter())
@@ -278,6 +280,12 @@ async def process_delete_reason(
         
         error_parts = result.get("errors", [])
         
+        # Отмечаем ученика как удаленного в системе отслеживания
+        try:
+            smm_tracking.mark_deleted(student_id, reason)
+        except Exception as e:
+            print(f"⚠️ Ошибка при отметке удаленного ученика: {e}")
+        
         # Формируем итоговое сообщение
         message_text = f"🗑️ <b>Ученик удален</b>\n\n"
         message_text += f"👤 <b>ФИО:</b> {student_fio}\n"
@@ -288,6 +296,12 @@ async def process_delete_reason(
         
         if error_parts:
             message_text += "<b>⚠️ Ошибки (частично выполнено):</b>\n" + "\n".join(error_parts[:5])  # Показываем первые 5 ошибок
+        
+        # Отмечаем ученика как удаленного в системе отслеживания
+        try:
+            smm_tracking.mark_deleted(student_id, reason)
+        except Exception as e:
+            print(f"⚠️ Ошибка при отметке удаленного ученика: {e}")
         
         # Логируем действие
         user_data = role_storage.get_user(message.from_user.id)

@@ -28,6 +28,7 @@ from bot.services.group_service import GroupService
 from bot.services.role_storage import RoleStorage
 from bot.services.action_logger import ActionLogger
 from bot.services.unprocessed_students_storage import UnprocessedStudentsStorage
+from bot.services.smm_tracking_service import SMMTrackingService
 from bot.config import CITY_MAPPING, BOT_TOKEN, OWNER_ID
 from src.CRUD.crud_student import NotionStudentCRUD
 
@@ -36,6 +37,7 @@ group_service = GroupService()
 role_storage = RoleStorage()
 action_logger = ActionLogger()
 unprocessed_storage = UnprocessedStudentsStorage()
+smm_tracking = SMMTrackingService()
 
 # Хранилище для уведомлений (notification_id -> информация об уведомлении)
 notification_storage = {}
@@ -426,9 +428,24 @@ async def process_student_data(message: Message, state: FSMContext, user_role: s
                 f"🏙️ Город: {city_name}"
             )
 
+            # Сохраняем информацию о том, кто добавил ученика (для всех ролей)
+            student_id = result.get("student_id", "")
+            if student_id:
+                try:
+                    smm_tracking.add_student(
+                        student_id=student_id,
+                        added_by_user_id=message.from_user.id,
+                        student_fio=student_data['ФИО'],
+                        city_name=city_name,
+                        group_name=group_name,
+                        user_role=user_role
+                    )
+                    print(f"✅ Информация о привлеченном ученике сохранена для {user_role} {message.from_user.id}")
+                except Exception as e:
+                    print(f"⚠️ Ошибка при сохранении информации о привлеченном ученике: {e}")
+
             # Отправляем уведомления менеджерам и владельцу
             try:
-                student_id = result.get("student_id", "")
                 print(f"📞 Вызываю функцию отправки уведомлений для ученика ID: {student_id}")
                 await send_student_notifications(
                     student_data=student_data,

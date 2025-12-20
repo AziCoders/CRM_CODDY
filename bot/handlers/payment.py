@@ -9,6 +9,7 @@ from bot.services.payment_service import PaymentService
 from bot.services.student_search import StudentSearchService
 from bot.services.role_storage import RoleStorage
 from bot.services.action_logger import ActionLogger
+from bot.services.smm_tracking_service import SMMTrackingService
 from bot.keyboards.payment_keyboards import (
     PaymentStatusCallback,
     PaymentBackCallback,
@@ -38,6 +39,7 @@ search_service = StudentSearchService()
 role_storage = RoleStorage()
 action_logger = ActionLogger()
 reminder_service = ReminderService()
+smm_tracking = SMMTrackingService()
 
 
 class PaymentQueryFilter(BaseFilter):
@@ -224,6 +226,23 @@ async def process_payment_status(
         # Получаем данные ученика для форматирования
         fio = student_data.get("ФИО", "Не указано").strip()
         student_url = student_data.get("student_url", "")
+        student_id = student_data.get("ID", "")
+
+        # Проверяем, является ли это первой оплатой для ученика, привлеченного SMM
+        # Отправляем уведомление только если статус "Оплатил"
+        if new_status == "Оплатил" and student_id:
+            is_first_payment = smm_tracking.mark_first_payment(student_id)
+            if is_first_payment:
+                # Получаем информацию об ученике для уведомления
+                student_info = smm_tracking.get_student_info(student_id)
+                if student_info:
+                    # Отправляем уведомление SMM
+                    await send_smm_payment_notification(
+                        student_id,
+                        fio,
+                        city_name,
+                        student_info.get("group_name", "Не указана")
+                    )
 
         # Логируем действие
         user_data = role_storage.get_user(callback.from_user.id)
@@ -706,3 +725,43 @@ async def process_comment_input(message: Message, state: FSMContext):
             "Пожалуйста, попробуйте снова."
         )
         await state.clear()
+
+
+async def send_smm_payment_notification(
+    student_id: str,
+    student_fio: str,
+    city_name: str,
+    group_name: str
+):
+    """Отправляет уведомление SMM о первой оплате ученика"""
+    try:
+        student_info = smm_tracking.get_student_info(student_id)
+        if not student_info:
+            return
+        
+        smm_user_id = student_info.get("added_by_user_id")
+        if not smm_user_id:
+            return
+        
+        from aiogram import Bot
+        from bot.config import BOT_TOKEN
+        
+        bot = Bot(token=BOT_TOKEN)
+        
+        notification_text = (
+            f"💰 <b>Первая оплата!</b>\n\n"
+            f"👤 Ученик: {student_fio}\n"
+            f"🏙️ Город: {city_name}\n"
+            f"🏫 Группа: {group_name}\n\n"
+            f"✅ Ученик, которого вы привлекли, внес первую оплату!"
+        )
+        
+        await bot.send_message(
+            chat_id=smm_user_id,
+            text=notification_text,
+            parse_mode="HTML"
+        )
+        
+        await bot.session.close()
+    except Exception as e:
+        print(f"❌ Ошибка отправки уведомления SMM о первой оплате: {e}")

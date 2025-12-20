@@ -2,10 +2,14 @@
 from aiogram import Router, F
 from aiogram.types import Message
 from bot.services.group_service import GroupService
+from bot.services.smm_tracking_service import SMMTrackingService
+from bot.services.role_storage import RoleStorage
 from bot.config import CITIES
 
 router = Router()
 group_service = GroupService()
+smm_tracking = SMMTrackingService()
+role_storage = RoleStorage()
 
 
 @router.message(F.text == "Свободные места")
@@ -14,6 +18,11 @@ async def cmd_free_places(message: Message, user_role: str = None):
     # Проверяем права доступа
     if user_role not in ["owner", "manager", "smm"]:
         await message.answer("❌ Свободные места доступны только для владельца, менеджера и SMM")
+        return
+    
+    # Для SMM показываем упрощенный отчет
+    if user_role == "smm":
+        await show_smm_free_places(message)
         return
     
     await message.answer("⏳ Загружаю информацию о свободных местах...")
@@ -184,4 +193,74 @@ async def cmd_free_places(message: Message, user_role: str = None):
         await message.answer("\n".join(summary_lines), parse_mode="HTML")
     else:
         await message.answer(message_text, parse_mode="HTML")
+
+
+async def show_smm_free_places(message: Message):
+    """Показывает упрощенный отчет о свободных местах для SMM"""
+    await message.answer("⏳ Загружаю информацию о свободных местах...")
+    
+    # Собираем информацию по городам (свободные места в каждом городе и группах)
+    cities_info = {}  # {city_name: {"total_free": int, "groups": [{"name": str, "free": int}]}}
+    total_free_places = 0
+    
+    for city_name in CITIES:
+        try:
+            total_seats = group_service.get_city_seats(city_name)
+            if total_seats == 0:
+                continue
+            
+            groups = group_service.get_city_groups(city_name)
+            if not groups:
+                continue
+            
+            # Собираем информацию о группах со свободными местами
+            city_groups = []
+            city_free_places = 0
+            
+            for group in groups:
+                group_name = group.get("group_name", "Без названия")
+                total_students = group.get("total_students", 0)
+                free_places = total_seats - total_students
+                
+                if free_places > 0:
+                    city_groups.append({
+                        "name": group_name,
+                        "free": free_places
+                    })
+                    city_free_places += free_places
+            
+            if city_free_places > 0:
+                cities_info[city_name] = {
+                    "total_free": city_free_places,
+                    "groups": city_groups
+                }
+                total_free_places += city_free_places
+        except Exception as e:
+            print(f"Ошибка обработки города {city_name}: {e}")
+            continue
+    
+    # Формируем сообщение в нужном формате
+    lines = []
+    
+    # Общее количество свободных мест
+    lines.append(f"Всего свободных мест: {total_free_places}")
+    lines.append("")
+    
+    # Список городов с количеством свободных мест и группами
+    for city_name in sorted(cities_info.keys()):
+        city_data = cities_info[city_name]
+        free_count = city_data["total_free"]
+        groups_list = city_data["groups"]
+        
+        lines.append(f"{city_name}:")
+        lines.append(f"Свободных мест: {free_count}")
+        
+        # Добавляем информацию о группах
+        for group_info in groups_list:
+            lines.append(f"  - {group_info['name']}: {group_info['free']} мест")
+        
+        lines.append("")
+    
+    message_text = "\n".join(lines)
+    await message.answer(message_text, parse_mode="HTML")
 
