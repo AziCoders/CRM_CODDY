@@ -510,13 +510,19 @@ async def handle_student_select(
     from bot.handlers.student_search import format_full_info
     formatted = format_full_info(student_data)
     # Показываем кнопку "Назад", так как профиль получен через кнопки
-    keyboard = get_student_profile_keyboard(student_id_full, city_name, group_id_full, show_back=True)
+    keyboard = get_student_profile_keyboard(student_id_full, city_name, group_id_full, show_back=True, user_role=user_role)
     
-    await callback.message.edit_text(
-        formatted,
-        parse_mode="HTML",
-        reply_markup=keyboard
-    )
+    if keyboard:
+        await callback.message.edit_text(
+            formatted,
+            parse_mode="HTML",
+            reply_markup=keyboard
+        )
+    else:
+        await callback.message.edit_text(
+            formatted,
+            parse_mode="HTML"
+        )
     await callback.answer()
 
 

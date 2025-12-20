@@ -163,8 +163,11 @@ async def handle_search(message: Message, state: FSMContext, user_role: str = No
                     student_id = student.get("ID", "")
                     city = student.get("Город", "")
                     group_id = student.get("group_id", "")
-                    keyboard = get_student_profile_keyboard(student_id, city, group_id)
-                    await message.answer(formatted, parse_mode="HTML", reply_markup=keyboard)
+                    keyboard = get_student_profile_keyboard(student_id, city, group_id, user_role=user_role)
+                    if keyboard:
+                        await message.answer(formatted, parse_mode="HTML", reply_markup=keyboard)
+                    else:
+                        await message.answer(formatted, parse_mode="HTML")
                 else:
                     # Форматируем результаты
                     if user_role == "teacher":
@@ -210,8 +213,11 @@ async def handle_search(message: Message, state: FSMContext, user_role: str = No
             from bot.keyboards.student_profile_keyboards import get_student_profile_keyboard
             student_id = data.get("ID", "")
             group_id = data.get("group_id", "")
-            keyboard = get_student_profile_keyboard(student_id, city_name, group_id)
-            await message.answer(formatted, parse_mode="HTML", reply_markup=keyboard)
+            keyboard = get_student_profile_keyboard(student_id, city_name, group_id, user_role=user_role)
+            if keyboard:
+                await message.answer(formatted, parse_mode="HTML", reply_markup=keyboard)
+            else:
+                await message.answer(formatted, parse_mode="HTML")
         elif result_type == "list":
             formatted = format_list(data, include_phone=True, all_cities=False)
             await message.answer(formatted, parse_mode="HTML")
