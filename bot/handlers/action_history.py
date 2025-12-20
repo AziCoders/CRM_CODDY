@@ -1,6 +1,10 @@
 """Обработчик истории действий"""
+import json
+import tempfile
+from pathlib import Path
+from datetime import datetime
 from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import Message, CallbackQuery, FSInputFile
 from aiogram.fsm.context import FSMContext
 from bot.services.action_logger import ActionLogger
 from bot.keyboards.action_history_keyboards import (
@@ -85,6 +89,56 @@ async def process_action_history(
             reply_markup=get_action_history_filter_keyboard()
         )
         await callback.answer()
+        return
+    
+    if action == "download_json":
+        # Скачиваем JSON файл со всей историей
+        await callback.answer("⏳ Формирую файл...")
+        
+        try:
+            # Получаем все логи (без ограничений)
+            all_logs = action_logger.get_logs(limit=0)  # 0 = без ограничений
+            
+            if not all_logs:
+                await callback.message.answer(
+                    "❌ История действий пуста. Нет данных для экспорта."
+                )
+                await callback.answer()
+                return
+            
+            # Создаем временный файл
+            temp_dir = Path(tempfile.gettempdir())
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            json_filename = f"actions_history_{timestamp}.json"
+            json_path = temp_dir / json_filename
+            
+            # Сохраняем все логи в JSON файл
+            with open(json_path, "w", encoding="utf-8") as f:
+                json.dump(all_logs, f, ensure_ascii=False, indent=2)
+            
+            # Отправляем файл
+            document = FSInputFile(json_path, filename=json_filename)
+            await callback.message.answer_document(
+                document,
+                caption=f"📥 <b>История действий</b>\n\n"
+                       f"Всего записей: {len(all_logs)}\n"
+                       f"Дата экспорта: {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}",
+                parse_mode="HTML"
+            )
+            
+            # Удаляем временный файл после отправки
+            try:
+                json_path.unlink()
+            except Exception as e:
+                print(f"⚠️ Не удалось удалить временный файл: {e}")
+            
+            await callback.answer("✅ Файл отправлен")
+        except Exception as e:
+            await callback.message.answer(
+                f"❌ Ошибка при формировании файла: {str(e)}"
+            )
+            await callback.answer("❌ Ошибка")
+            print(f"Ошибка при экспорте истории: {e}")
         return
     
     if action == "back":

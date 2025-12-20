@@ -46,13 +46,10 @@ async def process_role_selection(
     username = user_data.get("username", "")
     
     # Проверяем, что пользователь в статусе "pending"
+    # Если роль не pending, пропускаем - пусть обрабатывает role_management
     current_role = user_data.get("role", "")
     if current_role != "pending":
-        await callback.answer(
-            f"⚠️ Пользователь уже имеет роль: {current_role}", 
-            show_alert=True
-        )
-        return
+        return  # Пропускаем для обработки в role_management
     
     if role == "teacher":
         # Для преподавателя нужно выбрать город
@@ -142,6 +139,11 @@ async def process_city_selection(
     
     fio = user_data.get("fio", "")
     username = user_data.get("username", "")
+    
+    # Проверяем, что пользователь в статусе "pending"
+    current_role = user_data.get("role", "")
+    if current_role != "pending":
+        return  # Пропускаем для обработки в role_management
     
     try:
         # Сохраняем преподавателя с выбранным городом

@@ -6,7 +6,7 @@ from bot.config import CITIES
 
 class ActionHistoryCallback(CallbackData, prefix="action_history"):
     """Callback для истории действий"""
-    action: str  # view_all, filter, back
+    action: str  # view_all, filter, back, download_json
 
 
 class ActionHistoryFilterCallback(CallbackData, prefix="action_filter"):
@@ -27,6 +27,10 @@ def get_action_history_keyboard() -> InlineKeyboardMarkup:
             callback_data=ActionHistoryCallback(action="filter").pack()
         )],
         [InlineKeyboardButton(
+            text="📥 Скачать JSON",
+            callback_data=ActionHistoryCallback(action="download_json").pack()
+        )],
+        [InlineKeyboardButton(
             text="🔙 Назад",
             callback_data=ActionHistoryCallback(action="back").pack()
         )]
@@ -42,6 +46,14 @@ def get_action_history_filter_keyboard() -> InlineKeyboardMarkup:
             callback_data=ActionHistoryFilterCallback(filter_type="action_type", filter_value="add_student").pack()
         )],
         [InlineKeyboardButton(
+            text="🗑️ Удаление ученика",
+            callback_data=ActionHistoryFilterCallback(filter_type="action_type", filter_value="delete_student").pack()
+        )],
+        [InlineKeyboardButton(
+            text="✅ Обработка ученика",
+            callback_data=ActionHistoryFilterCallback(filter_type="action_type", filter_value="process_student").pack()
+        )],
+        [InlineKeyboardButton(
             text="📝 Посещаемость",
             callback_data=ActionHistoryFilterCallback(filter_type="action_type", filter_value="mark_attendance").pack()
         )],
@@ -50,8 +62,16 @@ def get_action_history_filter_keyboard() -> InlineKeyboardMarkup:
             callback_data=ActionHistoryFilterCallback(filter_type="action_type", filter_value="update_payment").pack()
         )],
         [InlineKeyboardButton(
-            text="👤 Управление ролями",
+            text="👤 Добавление роли",
             callback_data=ActionHistoryFilterCallback(filter_type="action_type", filter_value="add_role").pack()
+        )],
+        [InlineKeyboardButton(
+            text="✏️ Обновление роли",
+            callback_data=ActionHistoryFilterCallback(filter_type="action_type", filter_value="update_role").pack()
+        )],
+        [InlineKeyboardButton(
+            text="🗑️ Удаление роли",
+            callback_data=ActionHistoryFilterCallback(filter_type="action_type", filter_value="remove_role").pack()
         )],
         [InlineKeyboardButton(
             text="📊 Отчеты",
@@ -60,6 +80,10 @@ def get_action_history_filter_keyboard() -> InlineKeyboardMarkup:
         [InlineKeyboardButton(
             text="🔄 Синхронизация",
             callback_data=ActionHistoryFilterCallback(filter_type="action_type", filter_value="sync_data").pack()
+        )],
+        [InlineKeyboardButton(
+            text="🔍 Поиск ученика",
+            callback_data=ActionHistoryFilterCallback(filter_type="action_type", filter_value="search_student").pack()
         )],
         [InlineKeyboardButton(
             text="🔙 Назад",

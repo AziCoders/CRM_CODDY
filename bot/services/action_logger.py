@@ -102,7 +102,7 @@ class ActionLogger:
             user_id: Фильтр по ID пользователя
             action_type: Фильтр по типу действия
             city: Фильтр по городу
-            limit: Максимальное количество записей
+            limit: Максимальное количество записей (0 = без ограничений)
         
         Returns:
             Список логов
@@ -118,7 +118,9 @@ class ActionLogger:
         if city:
             filtered_logs = [log for log in filtered_logs if log.get("city") == city]
         
-        # Возвращаем последние записи
+        # Возвращаем последние записи (или все, если limit=0)
+        if limit == 0:
+            return filtered_logs
         return filtered_logs[-limit:]
     
     def format_log_entry(self, log: Dict[str, Any]) -> str:
@@ -131,8 +133,10 @@ class ActionLogger:
         # Иконки для типов действий
         action_icons = {
             "add_student": "➕",
+            "delete_student": "🗑️",
             "mark_attendance": "📝",
             "update_payment": "💰",
+            "process_student": "✅",
             "add_role": "👤",
             "remove_role": "🗑️",
             "update_role": "✏️",
@@ -147,8 +151,20 @@ class ActionLogger:
             f"{icon} <b>{self._format_action_type(action_type)}</b>",
             f"👤 <b>{user.get('fio', 'Неизвестно')}</b> (@{user.get('username', 'нет')})",
             f"🆔 ID: {user.get('id', 'N/A')}",
-            f"📅 {log.get('date', '')} в {log.get('time', '')}",
         ]
+        
+        # Добавляем роль пользователя, если она есть
+        if user.get('role'):
+            role_names = {
+                "owner": "👑 Владелец",
+                "manager": "👨‍💼 Менеджер",
+                "teacher": "👨‍🏫 Преподаватель",
+                "smm": "📱 SMM"
+            }
+            role_display = role_names.get(user.get('role'), f"👤 {user.get('role')}")
+            lines.append(f"{role_display}")
+        
+        lines.append(f"📅 {log.get('date', '')} в {log.get('time', '')}")
         
         if city:
             lines.append(f"🏙️ Город: {city}")
@@ -208,6 +224,25 @@ class ActionLogger:
                 f"   🔄 Тип: {details.get('sync_type', 'N/A')}",
                 f"   🏙️ Город: {details.get('city', 'Все города')}",
             ])
+        elif action_type == "process_student":
+            student_info = details.get("student", {})
+            lines.extend([
+                "",
+                "📋 <b>Информация об ученике:</b>",
+                f"   👤 ФИО: {student_info.get('fio', 'N/A')}",
+                f"   🏫 Группа: {student_info.get('group_name', 'N/A')}",
+                f"   ➕ Добавил: {student_info.get('added_by', 'N/A')} (@{student_info.get('added_by_username', 'N/A')})",
+                f"   ⏰ Время добавления: {student_info.get('added_time', 'N/A')}",
+            ])
+        elif action_type == "delete_student":
+            student_info = details.get("student", {})
+            lines.extend([
+                "",
+                "📋 <b>Информация об ученике:</b>",
+                f"   👤 ФИО: {student_info.get('fio', 'N/A')}",
+                f"   🆔 ID: {student_info.get('student_id', 'N/A')}",
+                f"   📝 Причина: {student_info.get('reason', 'N/A')}",
+            ])
         
         return "\n".join(lines)
     
@@ -215,8 +250,10 @@ class ActionLogger:
         """Форматирует тип действия для отображения"""
         action_names = {
             "add_student": "Добавление ученика",
+            "delete_student": "Удаление ученика",
             "mark_attendance": "Отметка посещаемости",
             "update_payment": "Обновление оплаты",
+            "process_student": "Обработка ученика",
             "add_role": "Добавление роли",
             "remove_role": "Удаление роли",
             "update_role": "Обновление роли",

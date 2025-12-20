@@ -19,6 +19,33 @@ class RoleEditCallback(CallbackData, prefix="role_edit"):
     user_id: int
 
 
+class RoleUpdateRoleCallback(CallbackData, prefix="role_update_role"):
+    """Callback для изменения роли пользователя"""
+    user_id: int
+
+
+class RoleUpdateCityCallback(CallbackData, prefix="role_update_city"):
+    """Callback для изменения города пользователя"""
+    user_id: int
+
+
+class RoleUpdateRoleSelectCallback(CallbackData, prefix="role_update_role_select"):
+    """Callback для выбора роли при обновлении"""
+    user_id: int
+    role: str
+
+
+class RoleUpdateCitySelectCallback(CallbackData, prefix="role_update_city_select"):
+    """Callback для выбора города при обновлении"""
+    user_id: int
+    city: str
+
+
+class RoleUpdateCancelCallback(CallbackData, prefix="role_update_cancel"):
+    """Callback для отмены обновления"""
+    user_id: int
+
+
 def get_role_management_keyboard() -> InlineKeyboardMarkup:
     """Главная клавиатура управления ролями"""
     keyboard = [
@@ -96,6 +123,14 @@ def get_user_actions_keyboard(user_id: int) -> InlineKeyboardMarkup:
     """Клавиатура действий с пользователем"""
     keyboard = [
         [InlineKeyboardButton(
+            text="✏️ Изменить роль",
+            callback_data=RoleUpdateRoleCallback(user_id=user_id).pack()
+        )],
+        [InlineKeyboardButton(
+            text="🏙️ Изменить город",
+            callback_data=RoleUpdateCityCallback(user_id=user_id).pack()
+        )],
+        [InlineKeyboardButton(
             text="🗑️ Удалить роль",
             callback_data=RoleDeleteCallback(user_id=user_id).pack()
         )],
@@ -121,5 +156,55 @@ def get_confirm_delete_keyboard(user_id: int) -> InlineKeyboardMarkup:
             )
         ]
     ]
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
+
+def get_role_update_keyboard(user_id: int) -> InlineKeyboardMarkup:
+    """Клавиатура выбора роли для обновления"""
+    keyboard = [
+        [InlineKeyboardButton(
+            text="👨‍💼 Менеджер",
+            callback_data=RoleUpdateRoleSelectCallback(user_id=user_id, role="manager").pack()
+        )],
+        [InlineKeyboardButton(
+            text="👨‍🏫 Преподаватель",
+            callback_data=RoleUpdateRoleSelectCallback(user_id=user_id, role="teacher").pack()
+        )],
+        [InlineKeyboardButton(
+            text="📱 SMM",
+            callback_data=RoleUpdateRoleSelectCallback(user_id=user_id, role="smm").pack()
+        )],
+        [InlineKeyboardButton(
+            text="❌ Отмена",
+            callback_data=RoleUpdateCancelCallback(user_id=user_id).pack()
+        )]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
+
+def get_city_update_keyboard(user_id: int, include_all: bool = False) -> InlineKeyboardMarkup:
+    """Клавиатура выбора города для обновления"""
+    keyboard = []
+    
+    # Добавляем опцию "Все города" если разрешено
+    if include_all:
+        keyboard.append([InlineKeyboardButton(
+            text="🌍 Все города",
+            callback_data=RoleUpdateCitySelectCallback(user_id=user_id, city="all").pack()
+        )])
+    
+    # Добавляем кнопки для каждого города
+    for city in CITIES:
+        keyboard.append([InlineKeyboardButton(
+            text=f"🏙️ {city}",
+            callback_data=RoleUpdateCitySelectCallback(user_id=user_id, city=city).pack()
+        )])
+    
+    # Кнопка отмены
+    keyboard.append([InlineKeyboardButton(
+        text="❌ Отмена",
+        callback_data=RoleUpdateCancelCallback(user_id=user_id).pack()
+    )])
+    
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 

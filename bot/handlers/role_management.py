@@ -8,10 +8,17 @@ from bot.keyboards.role_management_keyboards import (
     RoleManagementCallback,
     RoleDeleteCallback,
     RoleEditCallback,
+    RoleUpdateRoleCallback,
+    RoleUpdateCityCallback,
+    RoleUpdateRoleSelectCallback,
+    RoleUpdateCitySelectCallback,
+    RoleUpdateCancelCallback,
     get_role_management_keyboard,
     get_users_list_keyboard,
     get_user_actions_keyboard,
-    get_confirm_delete_keyboard
+    get_confirm_delete_keyboard,
+    get_role_update_keyboard,
+    get_city_update_keyboard
 )
 from bot.keyboards.inline_keyboards import (
     RoleCallback,
@@ -189,7 +196,6 @@ async def process_add_role_user_id(message: Message, state: FSMContext, user_rol
             )
         
         await state.set_state(RoleManagementState.waiting_role)
-        await bot.session.close()
     except Exception as e:
         await message.answer(
             f"❌ Не удалось найти пользователя с ID {user_id}.\n"
@@ -197,7 +203,6 @@ async def process_add_role_user_id(message: Message, state: FSMContext, user_rol
             f"Попробуйте снова или отправьте /cancel для отмены"
         )
         print(f"Ошибка получения информации о пользователе: {e}")
-        await bot.session.close()
 
 
 @router.message(StateFilter(RoleManagementState.waiting_user_id), Command("cancel"))
@@ -350,4 +355,371 @@ async def process_role_delete(
             pass
     else:
         await callback.answer("❌ Ошибка при удалении роли", show_alert=True)
+
+
+@router.callback_query(RoleUpdateRoleCallback.filter())
+async def process_update_role(
+    callback: CallbackQuery,
+    callback_data: RoleUpdateRoleCallback,
+    user_role: str = None
+):
+    """Обработка изменения роли пользователя"""
+    if user_role != "owner":
+        await callback.answer("❌ У вас нет доступа", show_alert=True)
+        return
+    
+    user_id = callback_data.user_id
+    
+    # Получаем данные пользователя
+    user_data = storage.get_user(user_id)
+    
+    if not user_data:
+        await callback.answer("❌ Пользователь не найден", show_alert=True)
+        return
+    
+    # Проверяем, не владелец ли это
+    if user_id == OWNER_ID:
+        await callback.answer("❌ Нельзя изменить роль владельца", show_alert=True)
+        return
+    
+    fio = user_data.get("fio", "Не указано")
+    current_role = user_data.get("role", "N/A")
+    
+    await callback.message.edit_text(
+        f"✏️ <b>Изменение роли</b>\n\n"
+        f"👤 Пользователь: {fio}\n"
+        f"👔 Текущая роль: {current_role}\n\n"
+        f"Выберите новую роль:",
+        parse_mode="HTML",
+        reply_markup=get_role_update_keyboard(user_id)
+    )
+    await callback.answer()
+
+
+@router.callback_query(RoleUpdateCityCallback.filter())
+async def process_update_city(
+    callback: CallbackQuery,
+    callback_data: RoleUpdateCityCallback,
+    user_role: str = None
+):
+    """Обработка изменения города пользователя"""
+    if user_role != "owner":
+        await callback.answer("❌ У вас нет доступа", show_alert=True)
+        return
+    
+    user_id = callback_data.user_id
+    
+    # Получаем данные пользователя
+    user_data = storage.get_user(user_id)
+    
+    if not user_data:
+        await callback.answer("❌ Пользователь не найден", show_alert=True)
+        return
+    
+    fio = user_data.get("fio", "Не указано")
+    current_city = user_data.get("city", "N/A")
+    current_role = user_data.get("role", "")
+    
+    # Если роль не преподаватель, можно выбрать "Все города"
+    include_all = (current_role != "teacher")
+    
+    await callback.message.edit_text(
+        f"🏙️ <b>Изменение города</b>\n\n"
+        f"👤 Пользователь: {fio}\n"
+        f"🏙️ Текущий город: {current_city if current_city != 'all' else 'Все города'}\n\n"
+        f"Выберите новый город:",
+        parse_mode="HTML",
+        reply_markup=get_city_update_keyboard(user_id, include_all=include_all)
+    )
+    await callback.answer()
+
+
+@router.callback_query(RoleUpdateRoleSelectCallback.filter())
+async def process_role_update_select(
+    callback: CallbackQuery,
+    callback_data: RoleUpdateRoleSelectCallback,
+    user_role: str = None
+):
+    """Обработка выбора роли при обновлении"""
+    if user_role != "owner":
+        await callback.answer("❌ У вас нет доступа", show_alert=True)
+        return
+    
+    user_id = callback_data.user_id
+    new_role = callback_data.role
+    
+    # Получаем данные пользователя
+    user_data = storage.get_user(user_id)
+    
+    if not user_data:
+        await callback.answer("❌ Пользователь не найден", show_alert=True)
+        return
+    
+    # Проверяем, не владелец ли это
+    if user_id == OWNER_ID:
+        await callback.answer("❌ Нельзя изменить роль владельца", show_alert=True)
+        return
+    
+    current_role = user_data.get("role", "")
+    
+    # Если роль не изменилась
+    if current_role == new_role:
+        await callback.answer("⚠️ Роль не изменилась", show_alert=True)
+        return
+    
+    if new_role == "teacher":
+        # Для преподавателя нужно выбрать город
+        await callback.message.edit_text(
+            f"🏙️ <b>Изменение города</b>\n\n"
+            f"👤 Пользователь: {user_data.get('fio', 'N/A')}\n"
+            f"👔 Новая роль: Преподаватель\n\n"
+            f"Выберите город:",
+            parse_mode="HTML",
+            reply_markup=get_city_update_keyboard(user_id, include_all=False)
+        )
+        await callback.answer()
+        
+        # Обновляем роль сразу на teacher
+        old_role = current_role
+        storage.update_user_role(user_id, new_role)
+        
+        # Логируем изменение роли (город будет обновлен в CityCallback)
+        owner_data = storage.get_user(callback.from_user.id)
+        action_logger.log_action(
+            user_id=callback.from_user.id,
+            user_fio=owner_data.get("fio", "Владелец") if owner_data else "Владелец",
+            username=callback.from_user.username or "нет",
+            action_type="update_role",
+            action_details={
+                "target_user": {
+                    "id": user_id,
+                    "fio": user_data.get("fio", ""),
+                    "username": user_data.get("username", ""),
+                    "old_role": old_role,
+                    "new_role": new_role,
+                    "city": user_data.get("city", "")
+                }
+            },
+            role="owner"
+        )
+    else:
+        # Для менеджера и SMM обновляем роль и город="all"
+        old_city = user_data.get("city", "all")
+        storage.update_user_role(user_id, new_role)
+        if new_role in ["manager", "smm"]:
+            storage.update_user_city(user_id, "all")
+        
+        # Логируем действие
+        owner_data = storage.get_user(callback.from_user.id)
+        action_logger.log_action(
+            user_id=callback.from_user.id,
+            user_fio=owner_data.get("fio", "Владелец") if owner_data else "Владелец",
+            username=callback.from_user.username or "нет",
+            action_type="update_role",
+            action_details={
+                "target_user": {
+                    "id": user_id,
+                    "fio": user_data.get("fio", ""),
+                    "username": user_data.get("username", ""),
+                    "old_role": current_role,
+                    "new_role": new_role,
+                    "old_city": old_city,
+                    "new_city": "all" if new_role in ["manager", "smm"] else old_city
+                }
+            },
+            role="owner"
+        )
+        
+        # Уведомляем пользователя
+        from bot.config import BOT_TOKEN
+        bot = Bot(token=BOT_TOKEN)
+        try:
+            if new_role == "manager":
+                menu_text = "👨‍💼 Ваша роль изменена на Менеджер"
+                from bot.keyboards.reply_keyboards import get_manager_menu
+                menu = get_manager_menu()
+            elif new_role == "smm":
+                menu_text = "📱 Ваша роль изменена на SMM"
+                from bot.keyboards.reply_keyboards import get_smm_menu
+                menu = get_smm_menu()
+            else:
+                menu_text = f"✅ Ваша роль изменена на {new_role}"
+                menu = None
+            
+            await bot.send_message(
+                chat_id=user_id,
+                text=menu_text,
+                reply_markup=menu
+            )
+        except Exception as e:
+            print(f"Ошибка отправки сообщения пользователю {user_id}: {e}")
+        finally:
+            await bot.session.close()
+        
+        await callback.message.edit_text(
+            f"✅ Роль пользователя <b>{user_data.get('fio', 'N/A')}</b> успешно изменена\n\n"
+            f"👔 Старая роль: {current_role}\n"
+            f"👔 Новая роль: {new_role}",
+            parse_mode="HTML",
+            reply_markup=get_user_actions_keyboard(user_id)
+        )
+        await callback.answer("✅ Роль обновлена")
+
+
+@router.callback_query(RoleUpdateCitySelectCallback.filter())
+async def process_city_update_select(
+    callback: CallbackQuery,
+    callback_data: RoleUpdateCitySelectCallback,
+    user_role: str = None
+):
+    """Обработка выбора города при обновлении"""
+    if user_role != "owner":
+        await callback.answer("❌ У вас нет доступа", show_alert=True)
+        return
+    
+    user_id = callback_data.user_id
+    new_city = callback_data.city
+    
+    # Получаем данные пользователя
+    user_data = storage.get_user(user_id)
+    
+    if not user_data:
+        await callback.answer("❌ Пользователь не найден", show_alert=True)
+        return
+    
+    current_city = user_data.get("city", "")
+    current_role = user_data.get("role", "")
+    
+    # Если город не изменился
+    if current_city == new_city:
+        await callback.answer("⚠️ Город не изменился", show_alert=True)
+        return
+    
+    old_city = current_city
+    storage.update_user_city(user_id, new_city)
+    
+    # Логируем действие
+    owner_data = storage.get_user(callback.from_user.id)
+    action_logger.log_action(
+        user_id=callback.from_user.id,
+        user_fio=owner_data.get("fio", "Владелец") if owner_data else "Владелец",
+        username=callback.from_user.username or "нет",
+        action_type="update_role",
+        action_details={
+            "target_user": {
+                "id": user_id,
+                "fio": user_data.get("fio", ""),
+                "username": user_data.get("username", ""),
+                "role": current_role,
+                "old_city": old_city,
+                "new_city": new_city
+            }
+        },
+        city=new_city,
+        role="owner"
+    )
+    
+    # Уведомляем пользователя
+    from bot.config import BOT_TOKEN
+    bot = Bot(token=BOT_TOKEN)
+    try:
+        city_display = new_city if new_city != "all" else "Все города"
+        await bot.send_message(
+            chat_id=user_id,
+            text=f"🏙️ Ваш город изменен на: {city_display}"
+        )
+    except Exception as e:
+        print(f"Ошибка отправки сообщения пользователю {user_id}: {e}")
+    finally:
+        await bot.session.close()
+    
+    old_city_display = old_city if old_city != "all" else "Все города"
+    new_city_display = new_city if new_city != "all" else "Все города"
+    
+    await callback.message.edit_text(
+        f"✅ Город пользователя <b>{user_data.get('fio', 'N/A')}</b> успешно изменен\n\n"
+        f"🏙️ Старый город: {old_city_display}\n"
+        f"🏙️ Новый город: {new_city_display}",
+        parse_mode="HTML",
+        reply_markup=get_user_actions_keyboard(user_id)
+    )
+    await callback.answer("✅ Город обновлен")
+
+
+@router.callback_query(RoleUpdateCancelCallback.filter())
+async def process_update_cancel(
+    callback: CallbackQuery,
+    callback_data: RoleUpdateCancelCallback,
+    user_role: str = None
+):
+    """Обработка отмены обновления роли/города"""
+    if user_role != "owner":
+        await callback.answer("❌ У вас нет доступа", show_alert=True)
+        return
+    
+    user_id = callback_data.user_id
+    
+    # Получаем данные пользователя для возврата к просмотру
+    user_data = storage.get_user(user_id)
+    
+    if not user_data:
+        await callback.answer("❌ Пользователь не найден", show_alert=True)
+        return
+    
+    # Возвращаемся к просмотру пользователя
+    fio = user_data.get("fio", "Не указано")
+    username = user_data.get("username", "нет")
+    role = user_data.get("role", "N/A")
+    city = user_data.get("city", "N/A")
+    
+    # Иконки ролей
+    role_icons = {
+        "owner": "👑",
+        "manager": "👨‍💼",
+        "teacher": "👨‍🏫",
+        "smm": "📱",
+        "pending": "⏳"
+    }
+    role_icon = role_icons.get(role, "👤")
+    
+    # Названия ролей
+    role_names = {
+        "owner": "Владелец",
+        "manager": "Менеджер",
+        "teacher": "Преподаватель",
+        "smm": "SMM",
+        "pending": "Ожидает назначения"
+    }
+    role_name = role_names.get(role, role)
+    
+    # Формируем информацию
+    info_lines = [
+        f"{role_icon} <b>Информация о работнике</b>",
+        "",
+        f"👤 <b>ФИО:</b> {fio}",
+        f"🆔 <b>ID:</b> {user_id}",
+        f"📱 <b>Username:</b> @{username}",
+        f"👔 <b>Роль:</b> {role_name}",
+    ]
+    
+    if city and city != "all":
+        info_lines.append(f"🏙️ <b>Город:</b> {city}")
+    elif city == "all":
+        info_lines.append(f"🏙️ <b>Город:</b> Все города")
+    
+    # Не показываем кнопку удаления для владельца
+    if user_id == OWNER_ID:
+        await callback.message.edit_text(
+            "\n".join(info_lines),
+            parse_mode="HTML",
+            reply_markup=get_role_management_keyboard()
+        )
+    else:
+        await callback.message.edit_text(
+            "\n".join(info_lines),
+            parse_mode="HTML",
+            reply_markup=get_user_actions_keyboard(user_id)
+        )
+    
+    await callback.answer("❌ Изменение отменено")
 

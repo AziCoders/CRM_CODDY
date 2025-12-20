@@ -281,6 +281,26 @@ async def process_attendance_confirm(
     
     if success:
         marked_count = len(marked_attendance)
+        
+        # Логируем действие
+        user_data = role_storage.get_user(callback.from_user.id)
+        from datetime import date
+        action_logger.log_action(
+            user_id=callback.from_user.id,
+            user_fio=user_data.get("fio", callback.from_user.full_name) if user_data else callback.from_user.full_name,
+            username=callback.from_user.username or "нет",
+            action_type="mark_attendance",
+            action_details={
+                "group_name": group_name,
+                "group_id": group_id,
+                "date": date.today().strftime("%d.%m.%Y"),
+                "students_count": marked_count,
+                "attendance_data": marked_attendance
+            },
+            city=city_name,
+            role=user_data.get("role") if user_data else None
+        )
+        
         await callback.message.edit_text(
             f"✅ Посещаемость успешно сохранена!\n\n"
             f"Группа: {group_name}\n"

@@ -6,11 +6,13 @@ from bot.keyboards.student_notification_keyboards import StudentProcessedCallbac
 from bot.config import BOT_TOKEN, OWNER_ID
 from bot.services.role_storage import RoleStorage
 from bot.services.unprocessed_students_storage import UnprocessedStudentsStorage
+from bot.services.action_logger import ActionLogger
 from datetime import datetime
 
 router = Router()
 role_storage = RoleStorage()
 unprocessed_storage = UnprocessedStudentsStorage()
+action_logger = ActionLogger()
 
 # Импортируем хранилище уведомлений из add_student
 from bot.handlers.add_student import notification_storage
@@ -96,6 +98,28 @@ async def process_student_notification(
         
         # Удаляем из необработанных учеников
         unprocessed_storage.remove_unprocessed_student(short_id)
+        
+        # Логируем действие обработки ученика
+        user_data = role_storage.get_user(processed_by_user.id)
+        student_id = info.get("student_id", "")
+        action_logger.log_action(
+            user_id=processed_by_user.id,
+            user_fio=user_data.get("fio", processed_by_user.full_name) if user_data else processed_by_user.full_name,
+            username=processed_by_username,
+            action_type="process_student",
+            action_details={
+                "student": {
+                    "fio": student_data.get("ФИО", "Не указано"),
+                    "student_id": student_id,
+                    "group_name": group_name,
+                    "added_by": added_by_name,
+                    "added_by_username": added_by_username,
+                    "added_time": added_time
+                }
+            },
+            city=city_name,
+            role=user_data.get("role") if user_data else None
+        )
         
         # Отправляем уведомления преподавателям с этого города
         await send_teacher_notifications(

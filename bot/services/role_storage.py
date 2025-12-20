@@ -116,4 +116,33 @@ class RoleStorage:
         del roles[user_id_str]
         self.save_roles(roles)
         return True
+    
+    def update_user_role(self, user_id: int, new_role: str) -> bool:
+        """Обновляет роль пользователя"""
+        roles = self.load_roles()
+        user_id_str = str(user_id)
+        
+        if user_id_str not in roles:
+            return False
+        
+        # Не позволяем изменять роль владельца
+        from bot.config import OWNER_ID
+        if user_id == OWNER_ID:
+            return False
+        
+        roles[user_id_str]["role"] = new_role
+        self.save_roles(roles)
+        return True
+    
+    def update_user_city(self, user_id: int, new_city: str) -> bool:
+        """Обновляет город пользователя"""
+        roles = self.load_roles()
+        user_id_str = str(user_id)
+        
+        if user_id_str not in roles:
+            return False
+        
+        roles[user_id_str]["city"] = new_city
+        self.save_roles(roles)
+        return True
 
