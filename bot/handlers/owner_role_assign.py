@@ -1,7 +1,7 @@
 """Обработчики для назначения ролей владельцем"""
 from aiogram import Router, Bot
-from aiogram.types import CallbackQuery, Message
 from aiogram.filters import StateFilter
+from aiogram.types import CallbackQuery, Message
 from bot.services.role_storage import RoleStorage
 from bot.keyboards.inline_keyboards import (
     RoleCallback,
@@ -144,7 +144,6 @@ async def process_city_selection(
     current_role = user_data.get("role", "")
     if current_role != "pending":
         return  # Пропускаем для обработки в role_management
-    
     try:
         # Сохраняем преподавателя с выбранным городом
         storage.add_user(
@@ -154,9 +153,10 @@ async def process_city_selection(
             role="teacher",
             city=city
         )
-        
+
         # Логируем действие
         owner_data = storage.get_user(callback.from_user.id)
+
         action_logger.log_action(
             user_id=callback.from_user.id,
             user_fio=owner_data.get("fio", "Владелец") if owner_data else "Владелец",
@@ -174,7 +174,6 @@ async def process_city_selection(
             city=city,
             role="owner"
         )
-        
         # Уведомляем пользователя
         try:
             await bot.send_message(
@@ -185,7 +184,7 @@ async def process_city_selection(
             )
         except Exception as e:
             print(f"Ошибка отправки сообщения пользователю {user_id}: {e}")
-        
+
         await callback.message.edit_text(
             f"✅ Преподаватель '{fio}' назначен в город '{city}'"
         )

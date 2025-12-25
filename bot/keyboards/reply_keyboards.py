@@ -10,7 +10,7 @@ def get_owner_menu() -> ReplyKeyboardMarkup:
         [KeyboardButton(text="Оплаты"), KeyboardButton(text="Города")],
         [KeyboardButton(text="Синхронизация"), KeyboardButton(text="Отчёты")],
         [KeyboardButton(text="ИИ-отчёт"), KeyboardButton(text="Информация")],
-        [KeyboardButton(text="Отчет по сотрудникам")],
+        [KeyboardButton(text="Отчет по сотрудникам"), KeyboardButton(text="Рассылка")],
     ]
     return ReplyKeyboardMarkup(
         keyboard=keyboard,
@@ -24,7 +24,7 @@ def get_manager_menu() -> ReplyKeyboardMarkup:
     keyboard = [
         [KeyboardButton(text="Добавить ученика"), KeyboardButton(text="Посещаемость")],
         [KeyboardButton(text="Оплаты"), KeyboardButton(text="Города")],
-        [KeyboardButton(text="Информация")],
+        [KeyboardButton(text="Информация"), KeyboardButton(text="Рассылка")],
     ]
     return ReplyKeyboardMarkup(
         keyboard=keyboard,
