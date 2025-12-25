@@ -10,10 +10,12 @@ load_dotenv()
 ROOT_DIR = Path(__file__).resolve().parent.parent
 
 # Путь к файлу ролей (отдельный файл для VK, чтобы не пересекались ID)
-ROLES_FILE = ROOT_DIR / "roles_vk.json"
+# Важно для деплоя: можно вынести роли в постоянное хранилище вне папки релиза
+# Пример: VK_ROLES_FILE=/var/lib/mybot/roles_vk.json
+ROLES_FILE = Path(os.getenv("VK_ROLES_FILE", str(ROOT_DIR / "roles_vk.json"))).expanduser()
 
 # Токен бота
-VK_BOT_TOKEN = "vk1.a.kh4RS75OAgca4ST2zsJYRVJq62WDBRySKqKJEBUFMFawg4JXHgxwNNn6TecriB-lb-lhwuLDi7EQNWNSfJO5QNhLLqH-iS6lYFx6I_KOWQt1iTmmAaCsl5MaVIVqq5VaHuadUdos6dWP7Wxqqzi4w9zDTJzi-M5BcJegzWohKeno9ODevcMiLPKNY4egTp5GILAYnBPGgb9Dpt5VO4J66w"
+VK_BOT_TOKEN = os.getenv("VK_BOT_TOKEN", "")
 
 # ID владельца (VK ID)
 # Можно добавить VK_OWNER_ID в .env или хардкодить, если известен
