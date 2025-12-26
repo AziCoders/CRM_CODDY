@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 from notion_client import AsyncClient
 from src.config import ROOT_DIR
 
+
 class NotionAttendanceFetcher:
     """Загружает таблицы 'Посещаемость' из всех групп и сохраняет их в attendance.json"""
 
@@ -163,5 +164,3 @@ class NotionAttendanceFetcher:
 
     async def close(self):
         await self.notion.close()
-
-

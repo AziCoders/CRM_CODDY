@@ -4,6 +4,21 @@ from aiogram.filters.callback_data import CallbackData
 from typing import List, Dict
 
 
+def _get_city_en_short(city: str) -> str:
+    """Вспомогательная функция для получения сокращенного английского названия города"""
+    from bot.config import CITY_MAPPING
+    
+    # Получаем английское название из маппинга
+    city_en_full = CITY_MAPPING.get(city, "")
+    if not city_en_full:
+        # Если не нашли в маппинге, пробуем использовать city как есть (если это уже английское)
+        # Проверяем, что это не русские символы
+        city_en_full = city if city and not any(ord(c) > 127 for c in city) else ""
+    
+    # Сокращаем до 6 символов для экономии места в callback_data
+    return city_en_full[:6] if city_en_full else ""
+
+
 class InfoMenuCallback(CallbackData, prefix="info_menu"):
     """Callback для главного меню информации"""
     city: str = ""  # Пустая строка означает выбор города
@@ -61,10 +76,8 @@ def get_info_cities_keyboard(cities: List[str]) -> InlineKeyboardMarkup:
 
 def get_info_menu_keyboard(city: str) -> InlineKeyboardMarkup:
     """Клавиатура главного меню информации для города"""
-    from bot.config import CITY_MAPPING
-    
     # Сокращаем данные для callback
-    city_en = CITY_MAPPING.get(city, city)[:6]
+    city_en = _get_city_en_short(city)
     
     keyboard = [
         [
@@ -89,10 +102,8 @@ def get_info_menu_keyboard(city: str) -> InlineKeyboardMarkup:
 
 def get_groups_list_keyboard(groups: List[Dict], city: str) -> InlineKeyboardMarkup:
     """Клавиатура со списком групп"""
-    from bot.config import CITY_MAPPING
-    
     # Сокращаем данные для callback
-    city_en = CITY_MAPPING.get(city, city)[:6]
+    city_en = _get_city_en_short(city)
     
     keyboard = []
     for group in groups:
@@ -119,10 +130,8 @@ def get_groups_list_keyboard(groups: List[Dict], city: str) -> InlineKeyboardMar
 
 def get_group_info_keyboard(group_id: str, city: str) -> InlineKeyboardMarkup:
     """Клавиатура для информации о группе"""
-    from bot.config import CITY_MAPPING
-    
     # Сокращаем данные для callback
-    city_en = CITY_MAPPING.get(city, city)[:6]
+    city_en = _get_city_en_short(city)
     group_id_short = group_id.replace("-", "")[:16] if group_id else ""
     
     keyboard = [
@@ -148,10 +157,8 @@ def get_group_info_keyboard(group_id: str, city: str) -> InlineKeyboardMarkup:
 
 def get_students_list_keyboard(students: List[Dict], group_id: str, city: str) -> InlineKeyboardMarkup:
     """Клавиатура со списком учеников группы"""
-    from bot.config import CITY_MAPPING
-    
     # Сокращаем данные для callback
-    city_en = CITY_MAPPING.get(city, city)[:6]
+    city_en = _get_city_en_short(city)
     group_id_short = group_id.replace("-", "")[:10] if group_id else ""
     
     # Отладочная информация
@@ -197,10 +204,8 @@ def get_students_list_keyboard(students: List[Dict], group_id: str, city: str) -
 
 def get_back_to_info_keyboard(city: str) -> InlineKeyboardMarkup:
     """Клавиатура только с кнопкой Назад к информации"""
-    from bot.config import CITY_MAPPING
-    
-    # Сокращаем данные для callback
-    city_en = CITY_MAPPING.get(city, city)[:6]
+    # Получаем английское название и сокращаем до 6 символов
+    city_en = _get_city_en_short(city)
     
     keyboard = [[
         InlineKeyboardButton(

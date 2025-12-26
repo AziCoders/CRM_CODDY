@@ -5,15 +5,19 @@ from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage
 from bot.config import BOT_TOKEN
 from bot.middlewares.role_middleware import RoleMiddleware
-from bot.handlers import start, owner_role_assign, student_search, add_student, report, attendance, payment, sync, role_management, action_history, free_places, student_notification, delete_student, payment_reminder_callbacks, test_absence, info_handler, student_attendance, back_to_students, smm_report, owner_report, broadcast
+from bot.handlers import start, owner_role_assign, student_search, add_student, report, attendance, payment, sync, \
+    role_management, action_history, free_places, student_notification, delete_student, payment_reminder_callbacks, \
+    test_absence, info_handler, student_attendance, back_to_students, smm_report, owner_report, broadcast
 # payment_report_query - роутер закомментирован, импорт удален
 from bot.handlers.reminder_handler import ReminderHandler
+
 # Настройка логирования
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
 
 async def main():
     """Главная функция запуска бота"""
@@ -50,7 +54,7 @@ async def main():
     dp.include_router(student_search.router)  # Поиск должен быть последним
 
     logger.info("Бот запущен и готов к работе")
-    
+
     # Создаем и запускаем обработчик напоминаний в фоне
     reminder_handler = ReminderHandler(bot)
     reminder_task = asyncio.create_task(reminder_handler.run_reminder_loop())
@@ -75,6 +79,3 @@ if __name__ == "__main__":
         logger.info("Бот остановлен пользователем")
     except Exception as e:
         logger.error(f"Критическая ошибка: {e}", exc_info=True)
-
-
-
