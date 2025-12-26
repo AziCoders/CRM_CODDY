@@ -10,7 +10,9 @@ load_dotenv()
 ROOT_DIR = Path(__file__).resolve().parent.parent
 
 # Путь к файлу ролей
-ROLES_FILE = ROOT_DIR / "roles.json"
+# Важно для деплоя: можно вынести роли в постоянное хранилище вне папки релиза
+# Пример: ROLES_FILE=/var/lib/mybot/roles.json
+ROLES_FILE = Path(os.getenv("ROLES_FILE", str(ROOT_DIR / "roles.json"))).expanduser()
 
 # ID владельца из .env
 OWNER_ID = int(os.getenv("OWNER_ID", "0"))

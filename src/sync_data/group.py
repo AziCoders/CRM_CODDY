@@ -19,6 +19,7 @@ import json
 from pathlib import Path
 from notion_client import AsyncClient
 from dotenv import load_dotenv
+from src.config import ROOT_DIR, get_notion_client
 
 
 class NotionGroupFetcher:
@@ -27,22 +28,18 @@ class NotionGroupFetcher:
     def __init__(self, city_name: str):
         load_dotenv()
         self.city_name = city_name.capitalize()
-        self.notion = AsyncClient(auth=os.getenv("NOTION_API_KEY"))
+        # Use shared client
+        self.notion = get_notion_client()
         self.database_id = os.getenv(f"{self.city_name.upper()}_GROUP_ID")
 
         if not self.database_id:
             raise ValueError(f"❌ Переменная {self.city_name.upper()}_GROUP_ID не найдена в .env")
 
-        # === Определяем корень проекта "Final Product" ===
-        root_dir = Path(__file__).resolve().parents[1]
-        if root_dir.name != "Final Product (2)":
-            for parent in Path(__file__).resolve().parents:
-                if parent.name == "Final Product (2)":
-                    root_dir = parent
-                    break
+        # === Определяем корень проекта ===
+        self.root_dir = ROOT_DIR
 
         # === Путь сохранения ===
-        self.output_path = root_dir / f"data/{self.city_name}/groups.json"
+        self.output_path = self.root_dir / f"data/{self.city_name}/groups.json"
         self.output_path.parent.mkdir(parents=True, exist_ok=True)
 
     async def get_all_groups(self) -> list:
