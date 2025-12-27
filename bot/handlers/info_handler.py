@@ -43,25 +43,21 @@ def convert_city_en_to_ru(city_en: str) -> str:
             return ru_name
     
     # Если не нашли, пробуем по началу (так как city_en может быть обрезан до 6 символов)
+    # Важно: проверяем startswith первым, чтобы избежать неоднозначности
     for ru_name, en_name in CITY_MAPPING.items():
-        # Проверяем, начинается ли полное название с сокращенного
-        if en_name.startswith(city_en) or (len(city_en) >= 3 and city_en.lower() in en_name.lower()):
+        # Проверяем, начинается ли полное название с сокращенного (без учета регистра)
+        if en_name.lower().startswith(city_en.lower()):
             return ru_name
-    
-    # Если все еще не нашли, пробуем обратное преобразование
-    reverse_mapping = {v: k for k, v in CITY_MAPPING.items()}
-    for en_full, ru_full in reverse_mapping.items():
-        if en_full.startswith(city_en) or (len(city_en) >= 3 and city_en.lower() in en_full.lower()):
-            return ru_full
     
     # Последний fallback - пробуем найти в CITIES по частичному совпадению
     for city in CITIES:
         city_en_from_mapping = CITY_MAPPING.get(city, "")
-        if city_en_from_mapping and (city_en in city_en_from_mapping or city_en_from_mapping.startswith(city_en)):
+        if city_en_from_mapping and city_en_from_mapping.lower().startswith(city_en.lower()):
             return city
     
-    # Если ничего не нашли, возвращаем как есть (может быть это уже русское название)
-    return city_en
+    # Если ничего не нашли, выводим предупреждение и возвращаем пустую строку
+    print(f"⚠️ Не удалось преобразовать city_en={city_en} в русское название")
+    return ""
 
 
 def load_city_info(city_name: str) -> Dict[str, str]:
@@ -549,6 +545,12 @@ async def handle_back(
         city_name = convert_city_en_to_ru(city_en) if city_en else None
         
         print(f"🔙 Преобразование: city_en={city_en} -> city_name={city_name}")
+        
+        # Если city_name пустой и level требует город, выводим ошибку
+        if not city_name and level in ["city", "groups", "group"]:
+            print(f"❌ КРИТИЧЕСКАЯ ОШИБКА: не удалось преобразовать city_en={city_en} для level={level}")
+            await callback.answer("❌ Ошибка: не удалось определить город", show_alert=True)
+            return
         
         if level == "main":
             # Возврат к выбору города (для менеджера/владельца) или главному меню
