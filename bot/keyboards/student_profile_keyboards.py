@@ -29,7 +29,7 @@ class StudentAttendanceCallback(CallbackData, prefix="sa"):
 
 class BackToStudentsCallback(CallbackData, prefix="bts"):
     """Callback для возврата к списку учеников группы"""
-    group_id: str  # Сокращенный ID группы (первые 10 символов)
+    group_id: str  # Сокращенный ID группы (первые 16 символов)
     city_en: str  # Английское название города (сокращенное до 6 символов)
 
 
@@ -57,7 +57,7 @@ def get_student_profile_keyboard(student_id: str, city: str, group_id: str = "",
         if show_back and group_id:
             from bot.config import CITY_MAPPING
             city_en = CITY_MAPPING.get(city, city)[:6]
-            group_id_short = group_id.replace("-", "")[:10] if group_id else ""
+            group_id_short = group_id.replace("-", "")[:16] if group_id else ""
             keyboard.append([
                 InlineKeyboardButton(
                     text="◀️ Назад",
@@ -73,7 +73,7 @@ def get_student_profile_keyboard(student_id: str, city: str, group_id: str = "",
     # Убираем дефисы из UUID и сокращаем до 16 символов для экономии места
     # Первые 16 символов UUID обычно достаточно уникальны
     student_id_short = student_id.replace("-", "")[:16] if student_id else ""
-    group_id_short = group_id.replace("-", "")[:10] if group_id else ""
+    group_id_short = group_id.replace("-", "")[:16] if group_id else ""
     
     keyboard = []
     

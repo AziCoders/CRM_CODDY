@@ -1,9 +1,9 @@
 """Сервис для работы с посещаемостью"""
-import json
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 from bot.config import ROOT_DIR, CITY_MAPPING
+from bot.utils.async_file_utils import read_json_file_async
 from src.CRUD.crud_attendance import NotionAttendanceUpdater
 
 
@@ -14,9 +14,9 @@ class AttendanceService:
         self.root_dir = ROOT_DIR
         self.attendance_updater = NotionAttendanceUpdater()
     
-    def get_group_students(self, city_name: str, group_id: str) -> List[Dict[str, Any]]:
+    async def get_group_students(self, city_name: str, group_id: str) -> List[Dict[str, Any]]:
         """
-        Получает список учеников группы
+        Получает список учеников группы (асинхронно)
         
         Args:
             city_name: Название города (русское)
@@ -28,66 +28,48 @@ class AttendanceService:
         city_en = CITY_MAPPING.get(city_name, city_name)
         students_path = self.root_dir / f"data/{city_en}/students.json"
         
-        if not students_path.exists():
+        students_data = await read_json_file_async(students_path)
+        if not students_data:
             return []
         
-        try:
-            with open(students_path, "r", encoding="utf-8") as f:
-                students_data = json.load(f)
-            
-            if group_id not in students_data:
-                return []
-            
-            group_data = students_data[group_id]
-            students_list = group_data.get("students", [])
-            
-            # Возвращаем только ID и ФИО
-            return [
-                {
-                    "ID": student.get("ID", ""),
-                    "ФИО": student.get("ФИО", "").strip()
-                }
-                for student in students_list
-            ]
-        except Exception as e:
-            print(f"Ошибка загрузки студентов для группы {group_id}: {e}")
+        if group_id not in students_data:
             return []
+        
+        group_data = students_data[group_id]
+        students_list = group_data.get("students", [])
+        
+        # Возвращаем только ID и ФИО
+        return [
+            {
+                "ID": student.get("ID", ""),
+                "ФИО": student.get("ФИО", "").strip()
+            }
+            for student in students_list
+        ]
     
-    def get_group_name(self, city_name: str, group_id: str) -> Optional[str]:
-        """Получает название группы"""
+    async def get_group_name(self, city_name: str, group_id: str) -> Optional[str]:
+        """Получает название группы (асинхронно)"""
         city_en = CITY_MAPPING.get(city_name, city_name)
         groups_path = self.root_dir / f"data/{city_en}/groups.json"
         
-        if not groups_path.exists():
+        groups_data = await read_json_file_async(groups_path)
+        if not groups_data:
             return None
         
-        try:
-            with open(groups_path, "r", encoding="utf-8") as f:
-                groups_data = json.load(f)
-            
-            group_info = groups_data.get(group_id, {})
-            return group_info.get("Название группы", None)
-        except Exception as e:
-            print(f"Ошибка загрузки названия группы {group_id}: {e}")
-            return None
+        group_info = groups_data.get(group_id, {})
+        return group_info.get("Название группы", None)
     
-    def get_attendance_db_id(self, city_name: str, group_id: str) -> Optional[str]:
-        """Получает ID базы данных посещаемости для группы"""
+    async def get_attendance_db_id(self, city_name: str, group_id: str) -> Optional[str]:
+        """Получает ID базы данных посещаемости для группы (асинхронно)"""
         city_en = CITY_MAPPING.get(city_name, city_name)
         structure_path = self.root_dir / f"data/{city_en}/structure.json"
         
-        if not structure_path.exists():
+        structure_data = await read_json_file_async(structure_path)
+        if not structure_data:
             return None
         
-        try:
-            with open(structure_path, "r", encoding="utf-8") as f:
-                structure_data = json.load(f)
-            
-            group_info = structure_data.get(group_id, {})
-            return group_info.get("attendance_db_id", None)
-        except Exception as e:
-            print(f"Ошибка загрузки attendance_db_id для группы {group_id}: {e}")
-            return None
+        group_info = structure_data.get(group_id, {})
+        return group_info.get("attendance_db_id", None)
     
     def format_date(self, date_obj: Optional[datetime] = None) -> str:
         """
@@ -146,7 +128,7 @@ class AttendanceService:
             True если успешно, False в случае ошибки
         """
         # Получаем ID базы данных посещаемости
-        attendance_db_id = self.get_attendance_db_id(city_name, group_id)
+        attendance_db_id = await self.get_attendance_db_id(city_name, group_id)
         if not attendance_db_id:
             print(f"❌ Не найден attendance_db_id для группы {group_id}")
             return False
@@ -177,4 +159,3 @@ class AttendanceService:
         except Exception as e:
             print(f"❌ Ошибка сохранения посещаемости: {e}")
             return False
-

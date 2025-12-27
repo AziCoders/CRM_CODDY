@@ -24,7 +24,7 @@ async def handle_payment_reminder_category(
     message_id = callback.message.message_id
     
     # Получаем актуальные данные
-    students_by_days = reminder_service.get_students_with_upcoming_payments()
+    students_by_days = await reminder_service.get_students_with_upcoming_payments()
     
     # Определяем доступные категории
     available_categories = [days for days in [0, 1, 2, 3] if students_by_days.get(days, [])]
@@ -88,7 +88,7 @@ async def handle_payment_reminder_refresh(
     message_id = callback.message.message_id
     
     # Получаем актуальные данные
-    students_by_days = reminder_service.get_students_with_upcoming_payments()
+    students_by_days = await reminder_service.get_students_with_upcoming_payments()
     
     # Определяем доступные категории
     available_categories = [days for days in [0, 1, 2, 3] if students_by_days.get(days, [])]

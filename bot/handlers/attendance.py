@@ -64,7 +64,7 @@ async def cmd_attendance(message: Message, state: FSMContext, user_role: str = N
         await state.set_state(AttendanceState.waiting_group)
         
         # Получаем группы города
-        groups = group_service.get_city_groups(user_city)
+        groups = await group_service.get_city_groups(user_city)
         if not groups:
             await message.answer(f"❌ Группы не найдены для города '{user_city}'")
             await state.clear()
@@ -98,7 +98,7 @@ async def process_attendance_city(
     await state.update_data(selected_city=city_name, needs_back_button=True)
     
     # Получаем группы города
-    groups = group_service.get_city_groups(city_name)
+    groups = await group_service.get_city_groups(city_name)
     
     if not groups:
         await callback.message.edit_text(f"❌ Группы не найдены для города '{city_name}'")
@@ -148,13 +148,13 @@ async def process_attendance_group(
         return
     
     # Получаем название группы
-    group_name = attendance_service.get_group_name(city_name, group_id)
+    group_name = await attendance_service.get_group_name(city_name, group_id)
     if not group_name:
         await callback.answer("❌ Группа не найдена", show_alert=True)
         return
     
     # Получаем список учеников
-    students = attendance_service.get_group_students(city_name, group_id)
+    students = await attendance_service.get_group_students(city_name, group_id)
     
     if not students:
         await callback.answer("❌ В группе нет учеников", show_alert=True)

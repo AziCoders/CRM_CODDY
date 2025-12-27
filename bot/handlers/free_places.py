@@ -33,13 +33,13 @@ async def cmd_free_places(message: Message, user_role: str = None):
     for city_name in CITIES:
         try:
             # Получаем количество мест в классе
-            total_seats = group_service.get_city_seats(city_name)
+            total_seats = await group_service.get_city_seats(city_name)
             
             if total_seats == 0:
                 continue  # Пропускаем города без информации о местах
             
             # Получаем группы города
-            groups = group_service.get_city_groups(city_name)
+            groups = await group_service.get_city_groups(city_name)
             
             if not groups:
                 continue  # Пропускаем города без групп
@@ -205,11 +205,11 @@ async def show_smm_free_places(message: Message):
     
     for city_name in CITIES:
         try:
-            total_seats = group_service.get_city_seats(city_name)
+            total_seats = await group_service.get_city_seats(city_name)
             if total_seats == 0:
                 continue
             
-            groups = group_service.get_city_groups(city_name)
+            groups = await group_service.get_city_groups(city_name)
             if not groups:
                 continue
             

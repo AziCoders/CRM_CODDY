@@ -51,14 +51,14 @@ class StudentSelectCallback(CallbackData, prefix="ss"):
     """Callback для выбора ученика из группы"""
     student_id: str  # Сокращенный ID (первые 16 символов без дефисов)
     city_en: str  # Английское название города (сокращенное до 6 символов)
-    group_id: str  # Сокращенный ID (первые 10 символов без дефисов)
+    group_id: str  # Сокращенный ID (первые 16 символов без дефисов)
 
 
 class BackCallback(CallbackData, prefix="back"):
     """Callback для кнопки Назад"""
     level: str  # "main", "city", "groups", "group", "students"
     city_en: str = ""  # Английское название города (сокращенное до 6 символов)
-    group_id: str = ""  # Сокращенный ID (первые 10 символов без дефисов)
+    group_id: str = ""  # Сокращенный ID (первые 16 символов без дефисов)
 
 
 def get_info_cities_keyboard(cities: List[str]) -> InlineKeyboardMarkup:
@@ -159,7 +159,7 @@ def get_students_list_keyboard(students: List[Dict], group_id: str, city: str) -
     """Клавиатура со списком учеников группы"""
     # Сокращаем данные для callback
     city_en = _get_city_en_short(city)
-    group_id_short = group_id.replace("-", "")[:10] if group_id else ""
+    group_id_short = group_id.replace("-", "")[:16] if group_id else ""
     
     # Отладочная информация
     print(f"🔘 Создаю клавиатуру учеников: group_id_full={group_id}, group_id_short={group_id_short}, students_count={len(students)}")

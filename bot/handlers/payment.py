@@ -136,7 +136,7 @@ async def handle_payment_search(message: Message, state: FSMContext, user_role: 
 
     # Выполняем поиск ученика
     try:
-        result_type, data = search_service.search(city_name, query)
+        result_type, data = await search_service.search(city_name, query)
 
         if result_type == "not_found":
             await message.answer(
@@ -293,7 +293,7 @@ async def process_payment_status(
 async def send_upcoming_payments_report(user_id: int, bot) -> bool:
     """Отправляет отчет о ближайших платежах пользователю"""
     # Получаем учеников с предстоящими оплатами (сегодня, через 1, 2, 3 дня)
-    students_by_days = reminder_service.get_students_with_upcoming_payments()
+    students_by_days = await reminder_service.get_students_with_upcoming_payments()
     
     # Проверяем, есть ли хоть один ученик в любом из периодов
     available_categories = [days for days in [0, 1, 2, 3] if students_by_days.get(days, [])]
@@ -409,7 +409,7 @@ async def cmd_payments(message: Message, state: FSMContext, user_role: str = Non
         await state.set_state(PaymentState.waiting_student)
 
         # Получаем учеников города
-        students = payment_service.get_city_students(user_city)
+        students = await payment_service.get_city_students(user_city)
         if not students:
             await message.answer(f"❌ Ученики не найдены для города '{user_city}'")
             await state.clear()
@@ -486,7 +486,7 @@ async def process_payment_city(
     await state.update_data(selected_city=city_name)
 
     # Получаем учеников города
-    students = payment_service.get_city_students(city_name)
+    students = await payment_service.get_city_students(city_name)
 
     if not students:
         await callback.message.edit_text(f"❌ Ученики не найдены для города '{city_name}'")

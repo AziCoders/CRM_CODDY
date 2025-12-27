@@ -14,9 +14,9 @@ role_storage = RoleStorage()
 search_service = StudentSearchService()
 
 
-def get_group_students(city_name: str, group_id: str):
+async def get_group_students(city_name: str, group_id: str):
     """Получает список учеников группы"""
-    students_data = search_service._load_city_students(city_name)
+    students_data = await search_service._load_city_students(city_name)
     
     if group_id not in students_data:
         return []
@@ -62,18 +62,18 @@ async def handle_back_to_students(
                 return
     
     # Ищем группу по сокращенному ID
-    groups = group_service.get_city_groups(city_name)
+    groups = await group_service.get_city_groups(city_name)
     group_id_full = None
     group_name = "Без названия"
     
-    # Нормализуем group_id_short - берем первые 10 символов
-    group_id_short_normalized = group_id_short[:10] if len(group_id_short) > 10 else group_id_short
+    # Нормализуем group_id_short - берем первые 16 символов
+    group_id_short_normalized = group_id_short[:16] if len(group_id_short) > 16 else group_id_short
     
     for g in groups:
         group_id_from_data = g.get("group_id", "")
         group_id_no_dashes = group_id_from_data.replace("-", "")
-        group_id_short_from_data = group_id_no_dashes[:10]  # Берем первые 10 символов
-        # Используем точное сравнение первых 10 символов
+        group_id_short_from_data = group_id_no_dashes[:16]  # Берем первые 16 символов
+        # Используем точное сравнение первых 16 символов
         if group_id_short_from_data == group_id_short_normalized:
             group_id_full = group_id_from_data
             group_name = g.get("group_name", "Без названия")
@@ -84,7 +84,7 @@ async def handle_back_to_students(
         return
     
     # Получаем список учеников
-    students = get_group_students(city_name, group_id_full)
+    students = await get_group_students(city_name, group_id_full)
     
     if not students:
         await callback.message.edit_text(

@@ -229,7 +229,7 @@ async def handle_student_attendance(
     
     # Получаем полный ID ученика
     try:
-        students_data = search_service._load_city_students(city_name)
+        students_data = await search_service._load_city_students(city_name)
         
         student_id = None
         group_id = None

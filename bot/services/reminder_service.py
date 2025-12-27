@@ -1,6 +1,5 @@
 """Сервис для напоминаний преподавателям о посещаемости"""
 import re
-import json
 from pathlib import Path
 from typing import List, Dict, Optional, Tuple
 from datetime import datetime, time, timedelta
@@ -8,6 +7,7 @@ from bot.config import ROOT_DIR, CITY_MAPPING, CITIES
 from bot.services.role_storage import RoleStorage
 from bot.services.attendance_service import AttendanceService
 from bot.services.payment_service import PaymentService
+from bot.utils.async_file_utils import read_json_file_async
 from src.CRUD.crud_attendance import NotionAttendanceUpdater
 
 
@@ -109,7 +109,7 @@ class ReminderService:
         Returns:
             True если посещаемость отмечена (хотя бы для одного ученика), False иначе
         """
-        attendance_db_id = self.attendance_service.get_attendance_db_id(city_name, group_id)
+        attendance_db_id = await self.attendance_service.get_attendance_db_id(city_name, group_id)
         if not attendance_db_id:
             return False
         
@@ -143,9 +143,9 @@ class ReminderService:
             print(f"❌ Ошибка при проверке посещаемости для группы {group_id}: {e}")
             return False
     
-    def get_teacher_groups(self, teacher_user_id: int) -> List[Dict]:
+    async def get_teacher_groups(self, teacher_user_id: int) -> List[Dict]:
         """
-        Получает список групп преподавателя
+        Получает список групп преподавателя (асинхронно)
         
         Args:
             teacher_user_id: ID пользователя-преподавателя
@@ -166,38 +166,32 @@ class ReminderService:
         city_en = CITY_MAPPING.get(teacher_city, teacher_city)
         groups_path = self.root_dir / f"data/{city_en}/groups.json"
         
-        if not groups_path.exists():
+        groups_data = await read_json_file_async(groups_path)
+        if not groups_data:
             return []
         
-        try:
-            with open(groups_path, "r", encoding="utf-8") as f:
-                groups_data = json.load(f)
+        teacher_groups = []
+        for group_id, group_info in groups_data.items():
+            # Проверяем, назначен ли этот преподаватель на группу
+            group_teacher = group_info.get("Преподаватель", "").strip()
             
-            teacher_groups = []
-            for group_id, group_info in groups_data.items():
-                # Проверяем, назначен ли этот преподаватель на группу
-                group_teacher = group_info.get("Преподаватель", "").strip()
-                
-                # Если у группы указан преподаватель, проверяем совпадение
-                if group_teacher:
-                    # Сравниваем по имени (может быть только имя или полное ФИО)
-                    # Проверяем, содержится ли имя преподавателя группы в ФИО преподавателя из roles
-                    # или наоборот
-                    if (group_teacher.lower() in teacher_fio.lower() or 
-                        teacher_fio.lower() in group_teacher.lower() or
-                        group_teacher.lower() == teacher_fio.lower()):
-                        teacher_groups.append({
-                            "city": teacher_city,
-                            "group_id": group_id,
-                            "group_name": group_info.get("Название группы", "")
-                        })
-                # Если преподаватель не указан, пропускаем группу
-                # Напоминания отправляются только для групп с указанным преподавателем
-            
-            return teacher_groups
-        except Exception as e:
-            print(f"❌ Ошибка загрузки групп для преподавателя {teacher_user_id}: {e}")
-            return []
+            # Если у группы указан преподаватель, проверяем совпадение
+            if group_teacher:
+                # Сравниваем по имени (может быть только имя или полное ФИО)
+                # Проверяем, содержится ли имя преподавателя группы в ФИО преподавателя из roles
+                # или наоборот
+                if (group_teacher.lower() in teacher_fio.lower() or 
+                    teacher_fio.lower() in group_teacher.lower() or
+                    group_teacher.lower() == teacher_fio.lower()):
+                    teacher_groups.append({
+                        "city": teacher_city,
+                        "group_id": group_id,
+                        "group_name": group_info.get("Название группы", "")
+                    })
+            # Если преподаватель не указан, пропускаем группу
+            # Напоминания отправляются только для групп с указанным преподавателем
+        
+        return teacher_groups
     
     async def get_groups_needing_reminder(self) -> List[Dict]:
         """
@@ -215,7 +209,7 @@ class ReminderService:
         
         for teacher in teachers:
             teacher_user_id = teacher.get("user_id")
-            teacher_groups = self.get_teacher_groups(teacher_user_id)
+            teacher_groups = await self.get_teacher_groups(teacher_user_id)
             
             for group in teacher_groups:
                 group_name = group["group_name"]
@@ -375,9 +369,9 @@ class ReminderService:
         
         return None
     
-    def get_students_with_upcoming_payments(self) -> Dict[int, List[Dict[str, any]]]:
+    async def get_students_with_upcoming_payments(self) -> Dict[int, List[Dict[str, any]]]:
         """
-        Получает список всех учеников с предстоящими оплатами (сегодня, через 1, 2, 3 дня)
+        Получает список всех учеников с предстоящими оплатами (сегодня, через 1, 2, 3 дня) (асинхронно)
         
         Returns:
             Словарь {days: [students]} где days - количество дней до оплаты (0, 1, 2, 3)
@@ -396,17 +390,15 @@ class ReminderService:
             city_en = CITY_MAPPING.get(city_name, city_name)
             payments_path = self.root_dir / f"data/{city_en}/payments.json"
             
-            if not payments_path.exists():
+            payments_data = await read_json_file_async(payments_path)
+            if not payments_data:
                 continue
             
             try:
-                with open(payments_path, "r", encoding="utf-8") as f:
-                    payments_data = json.load(f)
-                
                 payments_list = payments_data.get("payments", [])
                 
-                # Получаем всех учеников города для получения данных
-                students = self.payment_service.get_city_students(city_name)
+                # Получаем всех учеников города для получения данных (асинхронно)
+                students = await self.payment_service.get_city_students(city_name)
                 students_dict = {s.get("ID"): s for s in students}
                 
                 for payment in payments_list:
@@ -528,9 +520,9 @@ class ReminderService:
         except (ValueError, AttributeError):
             return None
     
-    def get_students_with_two_absent_marks(self) -> List[Dict[str, any]]:
+    async def get_students_with_two_absent_marks(self) -> List[Dict[str, any]]:
         """
-        Получает список учеников, у которых последние 2 отметки посещаемости - "Отсутствовал"
+        Получает список учеников, у которых последние 2 отметки посещаемости - "Отсутствовал" (асинхронно)
         
         Returns:
             Список учеников: [{"city": str, "fio": str, "student_id": str, "group_name": str, "last_two_dates": [str, str]}, ...]
@@ -544,12 +536,11 @@ class ReminderService:
             city_en = CITY_MAPPING.get(city_name, city_name)
             attendance_path = self.root_dir / f"data/{city_en}/attendance.json"
             
-            if not attendance_path.exists():
+            attendance_data = await read_json_file_async(attendance_path)
+            if not attendance_data:
                 continue
             
             try:
-                with open(attendance_path, "r", encoding="utf-8") as f:
-                    attendance_data = json.load(f)
                 
                 # Проходим по всем группам
                 for group_id, group_info in attendance_data.items():
