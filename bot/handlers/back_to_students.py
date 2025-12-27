@@ -14,9 +14,9 @@ role_storage = RoleStorage()
 search_service = StudentSearchService()
 
 
-async def get_group_students(city_name: str, group_id: str):
+def get_group_students(city_name: str, group_id: str):
     """Получает список учеников группы"""
-    students_data = await search_service._load_city_students(city_name)
+    students_data = search_service._load_city_students(city_name)
     
     if group_id not in students_data:
         return []
@@ -62,7 +62,7 @@ async def handle_back_to_students(
                 return
     
     # Ищем группу по сокращенному ID
-    groups = await group_service.get_city_groups(city_name)
+    groups = group_service.get_city_groups(city_name)
     group_id_full = None
     group_name = "Без названия"
     
@@ -84,7 +84,7 @@ async def handle_back_to_students(
         return
     
     # Получаем список учеников
-    students = await get_group_students(city_name, group_id_full)
+    students = get_group_students(city_name, group_id_full)
     
     if not students:
         await callback.message.edit_text(

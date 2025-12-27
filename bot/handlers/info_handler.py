@@ -97,9 +97,9 @@ def format_city_info(info: Dict[str, str]) -> str:
     return "\n".join(lines) if lines else "❌ Информация не найдена"
 
 
-async def get_groups_statistics(city_name: str) -> Dict[str, Any]:
+def get_groups_statistics(city_name: str) -> Dict[str, Any]:
     """Получает статистику по группам города"""
-    groups = await group_service.get_city_groups(city_name)
+    groups = group_service.get_city_groups(city_name)
     
     if not groups:
         return {
@@ -131,9 +131,9 @@ def format_groups_statistics(stats: Dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-async def get_group_info(city_name: str, group_id: str) -> Dict[str, Any]:
+def get_group_info(city_name: str, group_id: str) -> Dict[str, Any]:
     """Получает информацию о группе"""
-    groups = await group_service.get_city_groups(city_name)
+    groups = group_service.get_city_groups(city_name)
     
     for group in groups:
         if group.get("group_id") == group_id:
@@ -156,9 +156,9 @@ def format_group_info(group: Dict[str, Any], city_name: str) -> str:
     return "\n".join(lines)
 
 
-async def get_group_students(city_name: str, group_id: str) -> List[Dict[str, Any]]:
+def get_group_students(city_name: str, group_id: str) -> List[Dict[str, Any]]:
     """Получает список учеников группы"""
-    students_data = await search_service._load_city_students(city_name)
+    students_data = search_service._load_city_students(city_name)
     
     if not students_data:
         print(f"⚠️ Не удалось загрузить данные учеников для города {city_name}")
@@ -276,7 +276,7 @@ async def handle_info_action(
         )
     elif action == "groups":
         # Показываем статистику по группам и список групп
-        stats = await get_groups_statistics(city_name)
+        stats = get_groups_statistics(city_name)
         stats_text = format_groups_statistics(stats)
         
         await callback.message.edit_text(
@@ -365,7 +365,7 @@ async def handle_group_students(
                 return
     
     # Ищем группу по сокращенному ID
-    groups = await group_service.get_city_groups(city_name)
+    groups = group_service.get_city_groups(city_name)
     group_id_full = None
     group_name = "Без названия"
     
@@ -386,7 +386,7 @@ async def handle_group_students(
         await callback.answer("❌ Группа не найдена", show_alert=True)
         return
     
-    students = await get_group_students(city_name, group_id_full)
+    students = get_group_students(city_name, group_id_full)
     
     if not students:
         await callback.message.edit_text(
@@ -432,7 +432,7 @@ async def handle_student_select(
                 return
     
     # Ищем группу по сокращенному ID
-    groups = await group_service.get_city_groups(city_name)
+    groups = group_service.get_city_groups(city_name)
     group_id_full = None
     
     print(f"🔍 Восстановление группы: group_id_short={group_id_short} (len={len(group_id_short)}), city={city_name}")
@@ -463,7 +463,7 @@ async def handle_student_select(
         return
     
     # Получаем данные ученика
-    students = await get_group_students(city_name, group_id_full)
+    students = get_group_students(city_name, group_id_full)
     
     if not students:
         await callback.answer("❌ В группе нет учеников", show_alert=True)
@@ -584,7 +584,7 @@ async def handle_back(
         elif level == "groups":
             # Возврат к списку групп
             if city_name:
-                stats = await get_groups_statistics(city_name)
+                stats = get_groups_statistics(city_name)
                 stats_text = format_groups_statistics(stats)
                 await callback.message.edit_text(
                     stats_text,
@@ -599,7 +599,7 @@ async def handle_back(
             # Возврат к информации о группе
             if city_name and group_id_short:
                 # Ищем группу по сокращенному ID (используется 16 символов)
-                groups = await group_service.get_city_groups(city_name)
+                groups = group_service.get_city_groups(city_name)
                 group = None
                 group_id_full = None
                 

@@ -108,7 +108,7 @@ class ReminderHandler:
             return
         
         # Получаем учеников с предстоящими оплатами (сегодня, через 1, 2, 3 дня)
-        students_by_days = await self.reminder_service.get_students_with_upcoming_payments()
+        students_by_days = self.reminder_service.get_students_with_upcoming_payments()
         
         # Проверяем, есть ли хоть один ученик в любом из периодов
         available_categories = [days for days in [0, 1, 2, 3] if students_by_days.get(days, [])]
@@ -239,7 +239,7 @@ class ReminderHandler:
             return
         
         # Получаем учеников с двумя последними отсутствиями
-        students_with_absent = await self.reminder_service.get_students_with_two_absent_marks()
+        students_with_absent = self.reminder_service.get_students_with_two_absent_marks()
         
         if not students_with_absent:
             # Отмечаем, что проверка была выполнена, даже если учеников нет

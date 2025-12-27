@@ -20,7 +20,7 @@ async def test_absence_command(message: Message, bot):
         reminder_handler = ReminderHandler(bot)
         
         # Получаем список учеников для проверки
-        students = await reminder_handler.reminder_service.get_students_with_two_absent_marks()
+        students = reminder_handler.reminder_service.get_students_with_two_absent_marks()
         
         if not students:
             await message.answer(
@@ -76,7 +76,7 @@ async def check_absence_command(message: Message):
         from bot.services.reminder_service import ReminderService
         
         reminder_service = ReminderService()
-        students = await reminder_service.get_students_with_two_absent_marks()
+        students = reminder_service.get_students_with_two_absent_marks()
         
         if not students:
             await message.answer(

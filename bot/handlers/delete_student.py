@@ -61,7 +61,7 @@ async def handle_student_payment(
     # Получаем данные ученика
     try:
         # Ищем ученика по ID в файле students.json
-        students_data = await search_service._load_city_students(city_name)
+        students_data = search_service._load_city_students(city_name)
         
         student_data = None
         student_id = None
@@ -146,7 +146,7 @@ async def handle_student_delete(
     
     # Ищем ученика по сокращенному ID для получения полных данных
     try:
-        students_data = await search_service._load_city_students(city_name)
+        students_data = search_service._load_city_students(city_name)
         student_id = None
         group_id = None
         
@@ -252,7 +252,7 @@ async def process_delete_reason(
     try:
         # Получаем данные ученика для логирования
         city_en = CITY_MAPPING.get(city_name, city_name)
-        students_data = await search_service._load_city_students(city_name)
+        students_data = search_service._load_city_students(city_name)
         
         student_fio = "Неизвестно"
         for group_data in students_data.values():

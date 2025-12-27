@@ -187,9 +187,9 @@ class PaymentService:
             print(f"❌ Ошибка обновления комментария: {e}")
             return False
     
-    async def get_city_students(self, city_name: str) -> List[Dict[str, Any]]:
+    def get_city_students(self, city_name: str) -> List[Dict[str, Any]]:
         """
-        Получает список всех учеников города (асинхронно)
+        Получает список всех учеников города
         
         Args:
             city_name: Название города (русское)
@@ -197,39 +197,43 @@ class PaymentService:
         Returns:
             Список учеников [{"ID": "...", "ФИО": "...", "group_name": "..."}, ...]
         """
-        from bot.utils.async_file_utils import read_json_file_async
-        
         city_en = CITY_MAPPING.get(city_name, city_name)
         students_path = self.root_dir / f"data/{city_en}/students.json"
         
-        students_data = await read_json_file_async(students_path)
-        if not students_data:
+        if not students_path.exists():
             return []
         
-        all_students = []
-        for group_id, group_data in students_data.items():
-            group_name = group_data.get("group_name", "")
-            students_list = group_data.get("students", [])
+        try:
+            with open(students_path, "r", encoding="utf-8") as f:
+                students_data = json.load(f)
             
-            for student in students_list:
-                all_students.append({
-                    "ID": student.get("ID", ""),
-                    "ФИО": student.get("ФИО", "").strip(),
-                    "group_name": group_name,
-                    "student_url": student.get("student_url", ""),
-                    "Номер родителя": student.get("Номер родителя", ""),
-                    "Имя родителя": student.get("Имя родителя", ""),
-                    "Возраст": student.get("Возраст", ""),
-                    "Дата поступления": student.get("Дата поступления", ""),
-                    "Тариф": student.get("Тариф", ""),
-                    "Статус": student.get("Статус", ""),
-                    "Город": student.get("Город", city_name)
-                })
-        
-        # Сортируем по ФИО
-        all_students.sort(key=lambda x: x.get("ФИО", ""))
-        
-        return all_students
+            all_students = []
+            for group_id, group_data in students_data.items():
+                group_name = group_data.get("group_name", "")
+                students_list = group_data.get("students", [])
+                
+                for student in students_list:
+                    all_students.append({
+                        "ID": student.get("ID", ""),
+                        "ФИО": student.get("ФИО", "").strip(),
+                        "group_name": group_name,
+                        "student_url": student.get("student_url", ""),
+                        "Номер родителя": student.get("Номер родителя", ""),
+                        "Имя родителя": student.get("Имя родителя", ""),
+                        "Возраст": student.get("Возраст", ""),
+                        "Дата поступления": student.get("Дата поступления", ""),
+                        "Тариф": student.get("Тариф", ""),
+                        "Статус": student.get("Статус", ""),
+                        "Город": student.get("Город", city_name)
+                    })
+            
+            # Сортируем по ФИО
+            all_students.sort(key=lambda x: x.get("ФИО", ""))
+            
+            return all_students
+        except Exception as e:
+            print(f"Ошибка загрузки учеников для города {city_name}: {e}")
+            return []
     
     def get_student_by_id(self, city_name: str, student_id: str) -> Optional[Dict[str, Any]]:
         """

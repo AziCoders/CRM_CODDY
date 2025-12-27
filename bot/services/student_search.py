@@ -1,9 +1,9 @@
 """Сервис для поиска учеников"""
+import json
 import re
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
 from bot.config import ROOT_DIR, CITY_MAPPING, CITIES
-from bot.utils.async_file_utils import read_json_file_async
 
 
 class StudentSearchService:
@@ -12,13 +12,21 @@ class StudentSearchService:
     def __init__(self):
         self.root_dir = ROOT_DIR
     
-    async def _load_city_students(self, city_name: str) -> Dict[str, Any]:
-        """Загружает данные учеников для города (асинхронно)"""
+    def _load_city_students(self, city_name: str) -> Dict[str, Any]:
+        """Загружает данные учеников для города"""
         # Преобразуем русское название в английское для пути
         city_en = CITY_MAPPING.get(city_name, city_name)
         students_path = self.root_dir / f"data/{city_en}/students.json"
         
-        return await read_json_file_async(students_path)
+        if not students_path.exists():
+            return {}
+        
+        try:
+            with open(students_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception as e:
+            print(f"Ошибка загрузки students.json для {city_name}: {e}")
+            return {}
     
     def _normalize_phone_for_search(self, phone: str) -> str:
         """Нормализует телефон для поиска"""
@@ -62,9 +70,9 @@ class StudentSearchService:
         # Одно слово - может быть имя или фамилия
         return ("name_or_surname", query.lower())
     
-    async def search_by_phone(self, city_name: str, phone: str) -> Optional[Dict[str, Any]]:
+    def search_by_phone(self, city_name: str, phone: str) -> Optional[Dict[str, Any]]:
         """Поиск ученика по номеру телефона (полная информация)"""
-        students_data = await self._load_city_students(city_name)
+        students_data = self._load_city_students(city_name)
         normalized_phone = self._normalize_phone_for_search(phone)
         
         # Также пробуем поиск без нормализации (на случай частичного совпадения)
@@ -95,9 +103,9 @@ class StudentSearchService:
         
         return None
     
-    async def search_by_full_name(self, city_name: str, full_name: str) -> Optional[Dict[str, Any]]:
+    def search_by_full_name(self, city_name: str, full_name: str) -> Optional[Dict[str, Any]]:
         """Поиск ученика по полному ФИО (полная информация)"""
-        students_data = await self._load_city_students(city_name)
+        students_data = self._load_city_students(city_name)
         search_name = full_name.lower().strip()
         
         for group_id, group_data in students_data.items():
@@ -112,12 +120,12 @@ class StudentSearchService:
         
         return None
     
-    async def search_by_name_or_surname(self, city_name: str, name: str) -> List[Dict[str, Any]]:
+    def search_by_name_or_surname(self, city_name: str, name: str) -> List[Dict[str, Any]]:
         """
         Поиск по имени или фамилии (список с краткой информацией)
         Возвращает список: номер, группа, полное ФИО
         """
-        students_data = await self._load_city_students(city_name)
+        students_data = self._load_city_students(city_name)
         search_term = name.lower().strip()
         results = []
         
@@ -151,7 +159,7 @@ class StudentSearchService:
         
         return results
     
-    async def search(self, city_name: str, query: str) -> Tuple[str, Any]:
+    def search(self, city_name: str, query: str) -> Tuple[str, Any]:
         """
         Универсальный поиск
         Возвращает (тип_результата, данные)
@@ -160,24 +168,24 @@ class StudentSearchService:
         query_type, normalized_query = self._parse_query(query)
         
         if query_type == "phone":
-            result = await self.search_by_phone(city_name, normalized_query)
+            result = self.search_by_phone(city_name, normalized_query)
             if result:
                 return ("full_info", result)
             return ("not_found", None)
         
         elif query_type == "full_name":
-            result = await self.search_by_full_name(city_name, normalized_query)
+            result = self.search_by_full_name(city_name, normalized_query)
             if result:
                 return ("full_info", result)
             return ("not_found", None)
         
         else:  # name_or_surname
-            results = await self.search_by_name_or_surname(city_name, normalized_query)
+            results = self.search_by_name_or_surname(city_name, normalized_query)
             if results:
                 return ("list", results)
             return ("not_found", None)
     
-    async def search_all_cities(self, query: str, user_city: str = None) -> List[Dict[str, Any]]:
+    def search_all_cities(self, query: str, user_city: str = None) -> List[Dict[str, Any]]:
         """
         Поиск по всем городам (или только по городу пользователя для преподавателя)
         Возвращает список результатов с указанием города
@@ -188,19 +196,20 @@ class StudentSearchService:
         
         for city_name in cities_to_search:
             if query_type == "phone":
-                result = await self.search_by_phone(city_name, normalized_query)
+                result = self.search_by_phone(city_name, normalized_query)
                 if result:
                     result["Город"] = city_name
                     all_results.append(result)
             elif query_type == "full_name":
-                result = await self.search_by_full_name(city_name, normalized_query)
+                result = self.search_by_full_name(city_name, normalized_query)
                 if result:
                     result["Город"] = city_name
                     all_results.append(result)
             else:  # name_or_surname
-                results = await self.search_by_name_or_surname(city_name, normalized_query)
+                results = self.search_by_name_or_surname(city_name, normalized_query)
                 for result in results:
                     result["Город"] = city_name
                     all_results.append(result)
         
         return all_results
+

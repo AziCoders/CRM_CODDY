@@ -222,13 +222,13 @@ async def cmd_add_student(message: Message, state: FSMContext, user_role: str = 
             await state.update_data(selected_city=user_city)
             await state.set_state(AddStudentState.waiting_group)
             # Показываем группы сразу
-            groups = await group_service.get_city_groups(user_city)
+            groups = group_service.get_city_groups(user_city)
             if not groups:
                 await message.answer(f"❌ Группы не найдены для города '{user_city}'")
                 await state.clear()
                 return
             # Получаем количество мест в городе
-            city_seats = await group_service.get_city_seats(user_city)
+            city_seats = group_service.get_city_seats(user_city)
             seats_text = f"\n📊 Мест в классе: {city_seats}" if city_seats > 0 else ""
 
             await message.answer(
@@ -257,7 +257,7 @@ async def process_city_selection(
     await state.update_data(selected_city=city_name)
 
     # Загружаем группы для города
-    groups = await group_service.get_city_groups(city_name)
+    groups = group_service.get_city_groups(city_name)
 
     if not groups:
         await callback.message.edit_text(f"❌ Группы не найдены для города '{city_name}'")
@@ -266,7 +266,7 @@ async def process_city_selection(
         return
 
     # Получаем количество мест в городе
-    city_seats = await group_service.get_city_seats(city_name)
+    city_seats = group_service.get_city_seats(city_name)
     seats_text = f"\n📊 Мест в классе: {city_seats}" if city_seats > 0 else ""
 
     await callback.message.edit_text(
@@ -300,7 +300,7 @@ async def process_group_selection(
             break
 
     # Проверяем наличие свободных мест в группе
-    city_seats = await group_service.get_city_seats(city_name)
+    city_seats = group_service.get_city_seats(city_name)
     if city_seats > 0:
         free_places = city_seats - total_students
         if free_places <= 0:

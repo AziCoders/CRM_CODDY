@@ -143,7 +143,7 @@ async def handle_search(message: Message, state: FSMContext, user_role: str = No
         
         # Выполняем поиск по всем городам (или только по городу преподавателя)
         try:
-            results = await search_service.search_all_cities(query, user_city=user_city)
+            results = search_service.search_all_cities(query, user_city=user_city)
             
             if not results:
                 if user_role == "teacher":
@@ -201,7 +201,7 @@ async def handle_search(message: Message, state: FSMContext, user_role: str = No
     
     # Выполняем поиск
     try:
-        result_type, data = await search_service.search(city_name, query)
+        result_type, data = search_service.search(city_name, query)
         
         if result_type == "not_found":
             await message.answer(
