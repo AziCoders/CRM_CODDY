@@ -34,8 +34,8 @@ async def cmd_reports(message: Message, user_role: str = None):
         await message.answer("❌ У вас нет доступа к этой функции")
         return
     
-    # Для владельца - показываем выбор города
-    if user_role == "owner":
+    # Для владельца и менеджера - показываем выбор города
+    if user_role == "owner" or user_role == "manager":
         await message.answer(
             "📊 <b>Отчёты</b>\n\n"
             "Выберите город для просмотра отчетов:",
@@ -66,7 +66,7 @@ async def cmd_reports(message: Message, user_role: str = None):
         return
     
     # Для других ролей
-    await message.answer("❌ Отчёты доступны только для владельца и преподавателей")
+    await message.answer("❌ Отчёты доступны только для владельца, менеджера и преподавателей")
 
 
 @router.callback_query(ReportCityCallback.filter())
@@ -75,19 +75,20 @@ async def process_city_selection(
     callback_data: ReportCityCallback,
     user_role: str = None
 ):
-    """Обработка выбора города для отчетов (для владельца)"""
-    if user_role != "owner":
+    """Обработка выбора города для отчетов (для владельца и менеджера)"""
+    if user_role not in ["owner", "manager"]:
         await callback.answer("❌ У вас нет доступа", show_alert=True)
         return
     
     selected_city = callback_data.city
+    can_view_payments = (user_role in ["owner", "manager"])
     
     # Если выбраны все города - показываем меню для общего отчета
     if selected_city == "all":
         await callback.message.edit_text(
             "📊 <b>Общий отчёт по всем городам</b>\n\n"
             "Выберите тип отчета:",
-            reply_markup=get_report_keyboard(city="all", is_owner=True),
+            reply_markup=get_report_keyboard(city="all", is_owner=can_view_payments),
             parse_mode="HTML"
         )
         await callback.answer()
@@ -97,7 +98,7 @@ async def process_city_selection(
     await callback.message.edit_text(
         f"📊 <b>Отчёты по городу: {selected_city}</b>\n\n"
         f"Выберите тип отчета:",
-        reply_markup=get_report_keyboard(city=selected_city, is_owner=True),
+        reply_markup=get_report_keyboard(city=selected_city, is_owner=can_view_payments),
         parse_mode="HTML"
     )
     await callback.answer()
@@ -110,7 +111,7 @@ async def process_report_type(
     user_role: str = None
 ):
     """Обработка выбора типа отчета"""
-    if user_role not in ["teacher", "owner"]:
+    if user_role not in ["teacher", "owner", "manager"]:
         await callback.answer("❌ У вас нет доступа", show_alert=True)
         return
     
@@ -129,8 +130,8 @@ async def process_report_type(
             await callback.answer("❌ У вас не назначен город", show_alert=True)
             return
     
-    # Для владельца город должен быть в callback (или "all" для общего отчета)
-    if user_role == "owner" and not city:
+    # Для владельца и менеджера город должен быть в callback (или "all" для общего отчета)
+    if user_role in ["owner", "manager"] and not city:
         await callback.answer("❌ Не выбран город", show_alert=True)
         return
     
@@ -144,14 +145,19 @@ async def process_report_type(
             else:
                 title = f"📊 <b>Отчёты по городу: {city}</b>"
             
+            can_view_payments = (user_role in ["owner", "manager"])
             await callback.message.edit_text(
                 f"{title}\n\n"
                 f"Выберите тип отчета:",
                 parse_mode="HTML",
-                reply_markup=get_report_keyboard(city=city, is_owner=(user_role == "owner"))
+                reply_markup=get_report_keyboard(city=city, is_owner=can_view_payments)
             )
             await callback.answer()
             return
+        
+        # Определяем, может ли пользователь просматривать отчеты по оплатам (владелец и менеджер)
+        can_view_payments = (user_role in ["owner", "manager"])
+        is_owner = (user_role == "owner")
         
         # Если выбран общий отчет по всем городам
         if city == "all":
@@ -162,10 +168,11 @@ async def process_report_type(
                     summary_text, excel_path = generate_payments_report("all")
                     
                     # Отправляем текстовый отчет
+                    can_view_payments = (user_role in ["owner", "manager"])
                     await callback.message.edit_text(
                         summary_text,
                         parse_mode="HTML",
-                        reply_markup=get_report_keyboard(city="all", is_owner=True)
+                        reply_markup=get_report_keyboard(city="all", is_owner=can_view_payments)
                     )
                     
                     # Отправляем Excel файл
@@ -199,10 +206,11 @@ async def process_report_type(
                 )
                 
                 formatted = report_service.format_all_cities_summary(all_cities_report)
+                can_view_payments = (user_role in ["owner", "manager"])
                 await callback.message.edit_text(
                     formatted,
                     parse_mode="HTML",
-                    reply_markup=get_report_keyboard(city="all", is_owner=True)
+                    reply_markup=get_report_keyboard(city="all", is_owner=can_view_payments)
                 )
                 await callback.answer()
             else:
@@ -216,9 +224,10 @@ async def process_report_type(
                 summary_text, excel_path = generate_payments_report(city)
                 
                 # Отправляем текстовый отчет
+                can_view_payments = (user_role in ["owner", "manager"])
                 await callback.message.edit_text(
                     summary_text,
-                    reply_markup=get_report_keyboard(city=city, is_owner=(user_role == "owner"))
+                    reply_markup=get_report_keyboard(city=city, is_owner=can_view_payments)
                 )
                 
                 # Отправляем Excel файл
@@ -238,10 +247,11 @@ async def process_report_type(
             
             if report_type == "summary":
                 formatted = report_service.format_city_summary(report)
+                can_view_payments = (user_role in ["owner", "manager"])
                 await callback.message.edit_text(
                     formatted,
                     parse_mode="HTML",
-                    reply_markup=get_report_keyboard(city=city, is_owner=(user_role == "owner"))
+                    reply_markup=get_report_keyboard(city=city, is_owner=can_view_payments)
                 )
             elif report_type == "groups_attendance":
                 # Новый формат отчета по посещаемости с кнопками групп
@@ -262,10 +272,11 @@ async def process_report_type(
                 )
             else:
                 formatted = "❌ Неизвестный тип отчета"
+                can_view_payments = (user_role in ["owner", "manager"])
                 await callback.message.edit_text(
                     formatted,
                     parse_mode="HTML",
-                    reply_markup=get_report_keyboard(city=city, is_owner=(user_role == "owner"))
+                    reply_markup=get_report_keyboard(city=city, is_owner=can_view_payments)
                 )
             await callback.answer()
     
@@ -281,7 +292,7 @@ async def process_group_attendance(
     user_role: str = None
 ):
     """Обработка выбора группы для детального отчета по посещаемости"""
-    if user_role not in ["teacher", "owner"]:
+    if user_role not in ["teacher", "owner", "manager"]:
         await callback.answer("❌ У вас нет доступа", show_alert=True)
         return
     

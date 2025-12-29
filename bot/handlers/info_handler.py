@@ -24,6 +24,7 @@ from bot.keyboards.student_profile_keyboards import get_student_profile_keyboard
 from bot.services.group_service import GroupService
 from bot.services.role_storage import RoleStorage
 from bot.services.student_search import StudentSearchService
+from bot.services.id_mapping import id_mapping_service
 from bot.config import CITIES, CITY_MAPPING, ROOT_DIR
 
 router = Router()
@@ -31,33 +32,15 @@ group_service = GroupService()
 role_storage = RoleStorage()
 search_service = StudentSearchService()
 
+# Обратный маппинг для O(1) преобразования английского названия в русское
+CITY_EN_TO_RU = {en: ru for ru, en in CITY_MAPPING.items()}
+
 
 def convert_city_en_to_ru(city_en: str) -> str:
-    """Преобразует английское название города (возможно сокращенное) обратно в русское"""
+    """Преобразует английское название города в русское (O(1) lookup)"""
     if not city_en:
         return ""
-    
-    # Сначала пробуем точное совпадение
-    for ru_name, en_name in CITY_MAPPING.items():
-        if en_name == city_en:
-            return ru_name
-    
-    # Если не нашли, пробуем по началу (так как city_en может быть обрезан до 6 символов)
-    # Важно: проверяем startswith первым, чтобы избежать неоднозначности
-    for ru_name, en_name in CITY_MAPPING.items():
-        # Проверяем, начинается ли полное название с сокращенного (без учета регистра)
-        if en_name.lower().startswith(city_en.lower()):
-            return ru_name
-    
-    # Последний fallback - пробуем найти в CITIES по частичному совпадению
-    for city in CITIES:
-        city_en_from_mapping = CITY_MAPPING.get(city, "")
-        if city_en_from_mapping and city_en_from_mapping.lower().startswith(city_en.lower()):
-            return city
-    
-    # Если ничего не нашли, выводим предупреждение и возвращаем пустую строку
-    print(f"⚠️ Не удалось преобразовать city_en={city_en} в русское название")
-    return ""
+    return CITY_EN_TO_RU.get(city_en, "")
 
 
 def load_city_info(city_name: str) -> Dict[str, str]:
@@ -251,6 +234,10 @@ async def handle_info_action(
     # Преобразуем английское название обратно в русское
     city_name = convert_city_en_to_ru(city_en)
     
+    if not city_name:
+        await callback.answer("❌ Ошибка: не удалось определить город", show_alert=True)
+        return
+    
     # Проверяем права для преподавателя
     if user_role == "teacher":
         user_data = role_storage.get_user(callback.from_user.id)
@@ -291,11 +278,19 @@ async def handle_group_info(
     user_role: str = None
 ):
     """Обработка выбора группы"""
-    group_id_short = callback_data.group_id or ""
+    group_id = callback_data.group_id or ""
     city_en = callback_data.city_en or ""
+    
+    if not group_id:
+        await callback.answer("❌ Ошибка: ID группы не указан", show_alert=True)
+        return
     
     # Преобразуем английское название обратно в русское
     city_name = convert_city_en_to_ru(city_en)
+    
+    if not city_name:
+        await callback.answer("❌ Ошибка: не удалось определить город", show_alert=True)
+        return
     
     # Проверяем права для преподавателя
     if user_role == "teacher":
@@ -306,22 +301,13 @@ async def handle_group_info(
                 await callback.answer("❌ У вас нет доступа к этому городу", show_alert=True)
                 return
     
-    # Ищем группу по сокращенному ID
+    # Ищем группу по полному ID
     groups = group_service.get_city_groups(city_name)
     group = None
-    group_id_full = None
-    
-    # Нормализуем group_id_short - берем первые 16 символов (как в клавиатуре)
-    group_id_short_normalized = group_id_short[:16] if len(group_id_short) > 16 else group_id_short
     
     for g in groups:
-        group_id_from_data = g.get("group_id", "")
-        group_id_no_dashes = group_id_from_data.replace("-", "")
-        group_id_short_from_data = group_id_no_dashes[:16]  # Берем первые 16 символов (как в клавиатуре)
-        # Используем точное сравнение первых 16 символов
-        if group_id_short_from_data == group_id_short_normalized:
+        if g.get("group_id") == group_id:
             group = g
-            group_id_full = group_id_from_data
             break
     
     if not group:
@@ -333,7 +319,7 @@ async def handle_group_info(
     await callback.message.edit_text(
         formatted,
         parse_mode="HTML",
-        reply_markup=get_group_info_keyboard(group_id_full, city_name)
+        reply_markup=get_group_info_keyboard(group_id, city_name)
     )
     await callback.answer()
 
@@ -345,11 +331,19 @@ async def handle_group_students(
     user_role: str = None
 ):
     """Обработка просмотра учеников группы"""
-    group_id_short = callback_data.group_id or ""
+    group_id = callback_data.group_id or ""
     city_en = callback_data.city_en or ""
+    
+    if not group_id:
+        await callback.answer("❌ Ошибка: ID группы не указан", show_alert=True)
+        return
     
     # Преобразуем английское название обратно в русское
     city_name = convert_city_en_to_ru(city_en)
+    
+    if not city_name:
+        await callback.answer("❌ Ошибка: не удалось определить город", show_alert=True)
+        return
     
     # Проверяем права для преподавателя
     if user_role == "teacher":
@@ -360,29 +354,22 @@ async def handle_group_students(
                 await callback.answer("❌ У вас нет доступа к этому городу", show_alert=True)
                 return
     
-    # Ищем группу по сокращенному ID
+    # Проверяем существование группы
     groups = group_service.get_city_groups(city_name)
-    group_id_full = None
+    group = None
     group_name = "Без названия"
     
-    # Нормализуем group_id_short - берем первые 16 символов (как в клавиатуре)
-    group_id_short_normalized = group_id_short[:16] if len(group_id_short) > 16 else group_id_short
-    
     for g in groups:
-        group_id_from_data = g.get("group_id", "")
-        group_id_no_dashes = group_id_from_data.replace("-", "")
-        group_id_short_from_data = group_id_no_dashes[:16]  # Берем первые 16 символов (как в клавиатуре)
-        # Используем точное сравнение первых 16 символов
-        if group_id_short_from_data == group_id_short_normalized:
-            group_id_full = group_id_from_data
+        if g.get("group_id") == group_id:
+            group = g
             group_name = g.get("group_name", "Без названия")
             break
     
-    if not group_id_full:
+    if not group:
         await callback.answer("❌ Группа не найдена", show_alert=True)
         return
     
-    students = get_group_students(city_name, group_id_full)
+    students = get_group_students(city_name, group_id)
     
     if not students:
         await callback.message.edit_text(
@@ -399,7 +386,7 @@ async def handle_group_students(
     await callback.message.edit_text(
         students_text,
         parse_mode="HTML",
-        reply_markup=get_students_list_keyboard(students, group_id_full, city_name)
+        reply_markup=get_students_list_keyboard(students, group_id, city_name)
     )
     await callback.answer()
 
@@ -411,12 +398,34 @@ async def handle_student_select(
     user_role: str = None
 ):
     """Обработка выбора ученика из группы"""
-    student_id_short = callback_data.student_id or ""
-    city_en = callback_data.city_en or ""
-    group_id_short = callback_data.group_id or ""
+    student_id_short = (callback_data.student_id or "").strip()
+    city_en_short = (callback_data.city_en or "").strip()
+    group_id_short = (callback_data.group_id or "").strip()
     
-    # Преобразуем английское название обратно в русское
-    city_name = convert_city_en_to_ru(city_en)
+    if not student_id_short:
+        await callback.answer("❌ Ошибка: ID ученика не указан", show_alert=True)
+        return
+    
+    if not group_id_short:
+        await callback.answer("❌ Ошибка: ID группы не указан", show_alert=True)
+        return
+    
+    if not city_en_short:
+        await callback.answer("❌ Ошибка: город не указан", show_alert=True)
+        return
+    
+    # Преобразуем сокращенное английское название обратно в полное и русское
+    city_name = None
+    city_en_full = None
+    for ru_name, en_name in CITY_MAPPING.items():
+        if en_name.startswith(city_en_short):
+            city_name = ru_name
+            city_en_full = en_name
+            break
+    
+    if not city_name:
+        await callback.answer("❌ Ошибка: не удалось определить город", show_alert=True)
+        return
     
     # Проверяем права для преподавателя
     if user_role == "teacher":
@@ -427,35 +436,16 @@ async def handle_student_select(
                 await callback.answer("❌ У вас нет доступа к этому городу", show_alert=True)
                 return
     
-    # Ищем группу по сокращенному ID
-    groups = group_service.get_city_groups(city_name)
-    group_id_full = None
-    
-    print(f"🔍 Восстановление группы: group_id_short={group_id_short} (len={len(group_id_short)}), city={city_name}")
-    
-    # Нормализуем group_id_short - берем первые 16 символов
-    group_id_short_normalized = group_id_short[:16] if len(group_id_short) > 16 else group_id_short
-    print(f"   Нормализованный group_id_short: {group_id_short_normalized}")
-    
-    for g in groups:
-        group_id_from_data = g.get("group_id", "")
-        group_id_no_dashes = group_id_from_data.replace("-", "")
-        group_id_short_from_data = group_id_no_dashes[:16]  # Берем первые 16 символов для сравнения
-        print(f"   Проверяю: {g.get('group_name', 'N/A')} -> ID={group_id_from_data[:30]}... -> short={group_id_short_from_data}")
-        # Используем точное сравнение первых 16 символов
-        if group_id_short_from_data == group_id_short_normalized:
-            group_id_full = group_id_from_data
-            print(f"✅ Найдена группа: {g.get('group_name', 'N/A')}, ID={group_id_full}")
-            break
+    # Получаем полные ID из маппинга
+    group_id_full = id_mapping_service.get_full_id("group", group_id_short)
+    student_id_full = id_mapping_service.get_full_id("student", student_id_short)
     
     if not group_id_full:
-        print(f"❌ Группа не найдена для group_id_short={group_id_short} (normalized={group_id_short_normalized})")
-        print(f"   Доступные группы:")
-        for g in groups[:3]:
-            gid = g.get("group_id", "")
-            gid_short = gid.replace("-", "")[:16] if gid else ""
-            print(f"     - {g.get('group_name', 'N/A')}: {gid_short}")
-        await callback.answer("❌ Группа не найдена", show_alert=True)
+        await callback.answer("❌ Группа не найдена. Попробуйте выбрать группу заново", show_alert=True)
+        return
+    
+    if not student_id_full:
+        await callback.answer("❌ Ученик не найден. Попробуйте выбрать ученика заново", show_alert=True)
         return
     
     # Получаем данные ученика
@@ -465,45 +455,15 @@ async def handle_student_select(
         await callback.answer("❌ В группе нет учеников", show_alert=True)
         return
     
+    # Ищем ученика по полному ID
     student_data = None
-    student_id_full = None
-    
-    # Отладочная информация
-    print(f"🔍 Поиск ученика: student_id_short={student_id_short}, group_id_full={group_id_full}, students_count={len(students)}")
-    
-    if not student_id_short:
-        print(f"❌ student_id_short пустой!")
-        await callback.answer("❌ Ошибка: ID ученика не указан", show_alert=True)
-        return
-    
     for student in students:
-        student_id_from_data = student.get("ID", "")
-        if not student_id_from_data:
-            print(f"⚠️ Ученик {student.get('ФИО', 'N/A')} не имеет ID")
-            continue
-        
-        student_id_no_dashes = student_id_from_data.replace("-", "")
-        # Проверяем, начинается ли полный ID (без дефисов) с сокращенного
-        if student_id_no_dashes.startswith(student_id_short):
+        if student.get("ID") == student_id_full:
             student_data = student.copy()
-            student_id_full = student_id_from_data
-            print(f"✅ Найден ученик: {student_data.get('ФИО', 'N/A')}, ID={student_id_full}")
             break
     
     if not student_data:
-        # Дополнительная отладка
-        print(f"❌ Ученик не найден. Ищем: '{student_id_short}'")
-        print(f"   Проверяемые ID (первые 5):")
-        for i, student in enumerate(students[:5]):  # Показываем первые 5 для отладки
-            sid = student.get("ID", "")
-            sid_no_dashes = sid.replace("-", "") if sid else ""
-            sid_short = sid_no_dashes[:16] if sid_no_dashes else ""
-            matches = sid_no_dashes.startswith(student_id_short) if sid_no_dashes and student_id_short else False
-            print(f"   {i+1}. {student.get('ФИО', 'N/A')[:30]}:")
-            print(f"      ID={sid}")
-            print(f"      short={sid_short}")
-            print(f"      matches={matches}")
-        await callback.answer("❌ Ученик не найден", show_alert=True)
+        await callback.answer("❌ Ученик не найден в группе", show_alert=True)
         return
     
     # Форматируем и показываем профиль
@@ -533,25 +493,38 @@ async def handle_back(
     user_role: str = None
 ):
     """Обработка кнопки Назад"""
+    # Обязательный ответ в начале для предотвращения "залипания" кнопки
+    await callback.answer()
+    
     try:
         level = callback_data.level
         city_en = callback_data.city_en or ""
-        group_id_short = callback_data.group_id or ""
+        group_id = callback_data.group_id or ""
         
-        # Отладочная информация
-        print(f"🔙 Обработка кнопки Назад: level={level}, city_en={city_en}, group_id_short={group_id_short}")
+        # Валидация уровня
+        if level not in ["main", "city", "groups", "group", "students"]:
+            await callback.answer("❌ Ошибка: неверный уровень навигации", show_alert=True)
+            return
         
         # Преобразуем английское название обратно в русское (если нужно)
         city_name = convert_city_en_to_ru(city_en) if city_en else None
         
-        print(f"🔙 Преобразование: city_en={city_en} -> city_name={city_name}")
+        # Валидация контекста для уровней, требующих город
+        if level in ["city", "groups", "group", "students"]:
+            if not city_en:
+                await callback.answer("❌ Ошибка: не указан город", show_alert=True)
+                return
+            if not city_name:
+                await callback.answer("❌ Ошибка: не удалось определить город", show_alert=True)
+                return
         
-        # Если city_name пустой и level требует город, выводим ошибку
-        if not city_name and level in ["city", "groups", "group"]:
-            print(f"❌ КРИТИЧЕСКАЯ ОШИБКА: не удалось преобразовать city_en={city_en} для level={level}")
-            await callback.answer("❌ Ошибка: не удалось определить город", show_alert=True)
-            return
+        # Валидация контекста для уровней, требующих группу
+        if level in ["group", "students"]:
+            if not group_id:
+                await callback.answer("❌ Ошибка: не указана группа", show_alert=True)
+                return
         
+        # Обработка каждого уровня навигации
         if level == "main":
             # Возврат к выбору города (для менеджера/владельца) или главному меню
             if user_role in ["manager", "owner"]:
@@ -564,77 +537,95 @@ async def handle_back(
                 user_data = role_storage.get_user(callback.from_user.id)
                 if user_data:
                     user_city = user_data.get("city", "")
-                    await callback.message.edit_text(
-                        f"📋 <b>Информация</b>\n\n"
-                        f"🏙️ Город: {user_city}",
-                        parse_mode="HTML",
-                        reply_markup=get_info_menu_keyboard(user_city)
-                    )
+                    if user_city:
+                        await callback.message.edit_text(
+                            f"📋 <b>Информация</b>\n\n"
+                            f"🏙️ Город: {user_city}",
+                            parse_mode="HTML",
+                            reply_markup=get_info_menu_keyboard(user_city)
+                        )
+                    else:
+                        await callback.answer("❌ Ошибка: не указан ваш город", show_alert=True)
+                else:
+                    await callback.answer("❌ Ошибка: не удалось получить данные пользователя", show_alert=True)
+        
         elif level == "city":
             # Возврат к меню информации города
-            if city_name:
-                await callback.message.edit_text(
-                    f"📋 <b>Информация</b>\n\n"
-                    f"🏙️ Город: {city_name}",
-                    parse_mode="HTML",
-                    reply_markup=get_info_menu_keyboard(city_name)
-                )
-            else:
-                print(f"❌ Ошибка: city_name не найден для level=city, city_en={city_en}")
-                await callback.answer("❌ Ошибка: не удалось определить город", show_alert=True)
-                return
+            await callback.message.edit_text(
+                f"📋 <b>Информация</b>\n\n"
+                f"🏙️ Город: {city_name}",
+                parse_mode="HTML",
+                reply_markup=get_info_menu_keyboard(city_name)
+            )
+        
         elif level == "groups":
             # Возврат к списку групп
-            if city_name:
-                stats = get_groups_statistics(city_name)
-                stats_text = format_groups_statistics(stats)
-                await callback.message.edit_text(
-                    stats_text,
-                    parse_mode="HTML",
-                    reply_markup=get_groups_list_keyboard(stats["groups"], city_name)
-                )
-            else:
-                print(f"❌ Ошибка: city_name не найден для level=groups, city_en={city_en}")
-                await callback.answer("❌ Ошибка: не удалось определить город", show_alert=True)
-                return
+            stats = get_groups_statistics(city_name)
+            stats_text = format_groups_statistics(stats)
+            await callback.message.edit_text(
+                stats_text,
+                parse_mode="HTML",
+                reply_markup=get_groups_list_keyboard(stats["groups"], city_name)
+            )
+        
         elif level == "group":
             # Возврат к информации о группе
-            if city_name and group_id_short:
-                # Ищем группу по сокращенному ID (используется 16 символов)
-                groups = group_service.get_city_groups(city_name)
-                group = None
-                group_id_full = None
-                
-                # Нормализуем group_id_short - берем первые 16 символов
-                group_id_short_normalized = group_id_short[:16] if len(group_id_short) > 16 else group_id_short
-                
-                for g in groups:
-                    group_id_from_data = g.get("group_id", "")
-                    group_id_no_dashes = group_id_from_data.replace("-", "")
-                    group_id_short_from_data = group_id_no_dashes[:16]  # Берем первые 16 символов
-                    # Используем точное сравнение первых 16 символов
-                    if group_id_short_from_data == group_id_short_normalized:
-                        group = g
-                        group_id_full = group_id_from_data
-                        break
-                
-                if group:
-                    formatted = format_group_info(group, city_name)
-                    await callback.message.edit_text(
-                        formatted,
-                        parse_mode="HTML",
-                        reply_markup=get_group_info_keyboard(group_id_full, city_name)
-                    )
-                else:
-                    print(f"❌ Ошибка: группа не найдена для group_id_short={group_id_short}")
-                    await callback.answer("❌ Ошибка: группа не найдена", show_alert=True)
-                    return
-            else:
-                print(f"❌ Ошибка: недостаточно данных для level=group, city_name={city_name}, group_id_short={group_id_short}")
-                await callback.answer("❌ Ошибка: недостаточно данных", show_alert=True)
+            groups = group_service.get_city_groups(city_name)
+            group = None
+            
+            # Ищем группу по полному ID
+            for g in groups:
+                if g.get("group_id") == group_id:
+                    group = g
+                    break
+            
+            if not group:
+                await callback.answer("❌ Ошибка: группа не найдена", show_alert=True)
                 return
+            
+            formatted = format_group_info(group, city_name)
+            await callback.message.edit_text(
+                formatted,
+                parse_mode="HTML",
+                reply_markup=get_group_info_keyboard(group_id, city_name)
+            )
         
-        await callback.answer()
+        elif level == "students":
+            # Возврат к списку учеников группы
+            groups = group_service.get_city_groups(city_name)
+            group = None
+            group_name = "Без названия"
+            
+            # Проверяем существование группы
+            for g in groups:
+                if g.get("group_id") == group_id:
+                    group = g
+                    group_name = g.get("group_name", "Без названия")
+                    break
+            
+            if not group:
+                await callback.answer("❌ Ошибка: группа не найдена", show_alert=True)
+                return
+            
+            students = get_group_students(city_name, group_id)
+            
+            if not students:
+                await callback.message.edit_text(
+                    "❌ В группе нет учеников",
+                    reply_markup=get_back_to_info_keyboard(city_name)
+                )
+                return
+            
+            students_text = f"👥 <b>Ученики группы: {group_name}</b>\n\n"
+            students_text += f"Всего учеников: {len(students)}\n\n"
+            students_text += "Выберите ученика:"
+            
+            await callback.message.edit_text(
+                students_text,
+                parse_mode="HTML",
+                reply_markup=get_students_list_keyboard(students, group_id, city_name)
+            )
+    
     except Exception as e:
         print(f"❌ Ошибка в handle_back: {e}", exc_info=True)
         await callback.answer(f"❌ Ошибка: {str(e)}", show_alert=True)

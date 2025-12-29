@@ -15,6 +15,7 @@ from bot.keyboards.payment_reminder_keyboards import (
     get_payment_reminder_keyboard
 )
 from bot.handlers.add_student import notification_storage
+from bot.utils.timezone import format_datetime_str_msk, get_msk_now
 
 
 class ReminderHandler:
@@ -98,12 +99,12 @@ class ReminderHandler:
     
     async def send_payment_reminder(self):
         """Отправляет напоминания менеджерам и владельцу о предстоящих платежах"""
-        # Проверяем, нужно ли отправлять напоминание сейчас
+        # Проверяем, нужно ли отправлять напоминание сейчас (10:00 UTC)
         if not self.reminder_service.should_send_payment_reminder_now():
             return
         
-        # Проверяем, не отправляли ли уже сегодня
-        today_str = datetime.now().strftime("%Y-%m-%d")
+        # Проверяем, не отправляли ли уже сегодня (по МСК для даты)
+        today_str = format_datetime_str_msk()
         if today_str in self.sent_payment_reminders:
             return
         
@@ -221,7 +222,7 @@ class ReminderHandler:
         # Очищаем старые записи (старше недели)
         if len(self.sent_payment_reminders) > 10:
             from datetime import timedelta
-            week_ago = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
+            week_ago = format_datetime_str_msk(get_msk_now() - timedelta(days=7))
             self.sent_payment_reminders = {
                 date_str for date_str in self.sent_payment_reminders
                 if date_str >= week_ago
@@ -229,12 +230,12 @@ class ReminderHandler:
     
     async def send_absence_reminder(self):
         """Отправляет напоминания менеджерам о учениках с двумя последними отсутствиями"""
-        # Проверяем, нужно ли отправлять напоминание сейчас (в то же время, что и платежи - 13:00)
+        # Проверяем, нужно ли отправлять напоминание сейчас (10:00 UTC, в то же время, что и платежи)
         if not self.reminder_service.should_send_payment_reminder_now():
             return
         
-        # Проверяем, не отправляли ли уже сегодня
-        today_str = datetime.now().strftime("%Y-%m-%d")
+        # Проверяем, не отправляли ли уже сегодня (по МСК для даты)
+        today_str = format_datetime_str_msk()
         if today_str in self.sent_absence_reminders:
             return
         
@@ -330,7 +331,7 @@ class ReminderHandler:
         # Очищаем старые записи (старше недели)
         if len(self.sent_absence_reminders) > 10:
             from datetime import timedelta
-            week_ago = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
+            week_ago = format_datetime_str_msk(get_msk_now() - timedelta(days=7))
             self.sent_absence_reminders = {
                 date_str for date_str in self.sent_absence_reminders
                 if date_str >= week_ago
@@ -338,12 +339,12 @@ class ReminderHandler:
     
     async def send_unprocessed_students_reminder(self):
         """Отправляет ежедневные напоминания о необработанных учениках менеджерам и владельцу"""
-        # Проверяем, нужно ли отправлять напоминание (каждый день в 10:00)
+        # Проверяем, нужно ли отправлять напоминание (каждый день в 07:00 UTC)
         if not self.reminder_service.should_send_unprocessed_students_reminder_now():
             return
         
-        # Проверяем, не отправляли ли уже сегодня
-        today_str = datetime.now().strftime("%Y-%m-%d")
+        # Проверяем, не отправляли ли уже сегодня (по МСК для даты)
+        today_str = format_datetime_str_msk()
         if today_str in self.sent_unprocessed_reminders:
             return
         
@@ -436,7 +437,7 @@ class ReminderHandler:
         
         # Очищаем старые записи (старше недели)
         if len(self.sent_unprocessed_reminders) > 10:
-            week_ago = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
+            week_ago = format_datetime_str_msk(get_msk_now() - timedelta(days=7))
             self.sent_unprocessed_reminders = {
                 date_str for date_str in self.sent_unprocessed_reminders
                 if date_str >= week_ago

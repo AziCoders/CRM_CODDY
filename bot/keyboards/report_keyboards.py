@@ -55,7 +55,12 @@ def get_report_city_keyboard() -> InlineKeyboardMarkup:
 
 
 def get_report_keyboard(city: str = "", is_owner: bool = False) -> InlineKeyboardMarkup:
-    """Клавиатура для выбора типа отчета"""
+    """Клавиатура для выбора типа отчета
+    
+    Args:
+        city: Название города
+        is_owner: True для владельца и менеджера (показывать отчет по оплатам)
+    """
     keyboard = [
         [InlineKeyboardButton(
             text="📊 Сводка по городу",
@@ -67,7 +72,7 @@ def get_report_keyboard(city: str = "", is_owner: bool = False) -> InlineKeyboar
         )],
     ]
     
-    # Для владельца добавляем отчет по оплатам
+    # Для владельца и менеджера добавляем отчет по оплатам
     if is_owner:
         keyboard.append([InlineKeyboardButton(
             text="💰 Отчет по оплатам",

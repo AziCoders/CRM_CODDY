@@ -2,21 +2,29 @@
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters.callback_data import CallbackData
 from typing import List, Dict
+from bot.services.id_mapping import id_mapping_service
 
 
-def _get_city_en_short(city: str) -> str:
-    """Вспомогательная функция для получения сокращенного английского названия города"""
+def _get_city_en(city: str) -> str:
+    """Получает полное английское название города из маппинга"""
     from bot.config import CITY_MAPPING
-    
-    # Получаем английское название из маппинга
-    city_en_full = CITY_MAPPING.get(city, "")
-    if not city_en_full:
-        # Если не нашли в маппинге, пробуем использовать city как есть (если это уже английское)
-        # Проверяем, что это не русские символы
-        city_en_full = city if city and not any(ord(c) > 127 for c in city) else ""
-    
-    # Сокращаем до 6 символов для экономии места в callback_data
-    return city_en_full[:6] if city_en_full else ""
+    return CITY_MAPPING.get(city, city)
+
+
+def _shorten_uuid(uuid_str: str, length: int = 8) -> str:
+    """Сокращает UUID до указанной длины (убирает дефисы и берет первые символы)"""
+    if not uuid_str:
+        return ""
+    # Убираем дефисы, приводим к нижнему регистру и берем первые символы
+    uuid_no_dashes = uuid_str.replace("-", "").lower().strip()
+    return uuid_no_dashes[:length]
+
+
+def _shorten_city(city_en: str, length: int = 2) -> str:
+    """Сокращает название города до указанной длины"""
+    if not city_en:
+        return ""
+    return city_en[:length]
 
 
 class InfoMenuCallback(CallbackData, prefix="info_menu"):
@@ -32,33 +40,33 @@ class CityInfoCallback(CallbackData, prefix="city_info"):
 class InfoActionCallback(CallbackData, prefix="ia"):
     """Callback для действий в информации (информация, группы)"""
     action: str  # "info" или "groups"
-    city_en: str  # Английское название города (сокращенное до 6 символов)
+    city_en: str  # Полное английское название города
 
 
 class GroupInfoCallback(CallbackData, prefix="gi"):
     """Callback для выбора группы"""
-    group_id: str  # Сокращенный ID (первые 16 символов без дефисов)
-    city_en: str  # Английское название города (сокращенное до 6 символов)
+    group_id: str  # Полный ID группы (UUID)
+    city_en: str  # Полное английское название города
 
 
 class GroupStudentsCallback(CallbackData, prefix="gs"):
     """Callback для просмотра учеников группы"""
-    group_id: str  # Сокращенный ID (первые 16 символов без дефисов)
-    city_en: str  # Английское название города (сокращенное до 6 символов)
+    group_id: str  # Полный ID группы (UUID)
+    city_en: str  # Полное английское название города
 
 
 class StudentSelectCallback(CallbackData, prefix="ss"):
     """Callback для выбора ученика из группы"""
-    student_id: str  # Сокращенный ID (первые 16 символов без дефисов)
-    city_en: str  # Английское название города (сокращенное до 6 символов)
-    group_id: str  # Сокращенный ID (первые 16 символов без дефисов)
+    student_id: str  # Короткий ID ученика (2 цифры)
+    city_en: str  # Сокращенное английское название города (первые 2 символа)
+    group_id: str  # Короткий ID группы (2 цифры)
 
 
 class BackCallback(CallbackData, prefix="back"):
     """Callback для кнопки Назад"""
     level: str  # "main", "city", "groups", "group", "students"
-    city_en: str = ""  # Английское название города (сокращенное до 6 символов)
-    group_id: str = ""  # Сокращенный ID (первые 16 символов без дефисов)
+    city_en: str = ""  # Полное английское название города (обязательно для level != "main")
+    group_id: str = ""  # Полный ID группы (обязательно для level == "group" или "students")
 
 
 def get_info_cities_keyboard(cities: List[str]) -> InlineKeyboardMarkup:
@@ -76,8 +84,7 @@ def get_info_cities_keyboard(cities: List[str]) -> InlineKeyboardMarkup:
 
 def get_info_menu_keyboard(city: str) -> InlineKeyboardMarkup:
     """Клавиатура главного меню информации для города"""
-    # Сокращаем данные для callback
-    city_en = _get_city_en_short(city)
+    city_en = _get_city_en(city)
     
     keyboard = [
         [
@@ -102,20 +109,20 @@ def get_info_menu_keyboard(city: str) -> InlineKeyboardMarkup:
 
 def get_groups_list_keyboard(groups: List[Dict], city: str) -> InlineKeyboardMarkup:
     """Клавиатура со списком групп"""
-    # Сокращаем данные для callback
-    city_en = _get_city_en_short(city)
+    city_en = _get_city_en(city)
     
     keyboard = []
     for group in groups:
         group_name = group.get("group_name", "Без названия")
-        group_id_full = group.get("group_id", "")
-        # Сокращаем group_id до 16 символов без дефисов
-        group_id_short = group_id_full.replace("-", "")[:16] if group_id_full else ""
+        group_id = group.get("group_id", "")
+        
+        if not group_id:
+            continue
         
         keyboard.append([
             InlineKeyboardButton(
                 text=group_name,
-                callback_data=GroupInfoCallback(group_id=group_id_short, city_en=city_en).pack()
+                callback_data=GroupInfoCallback(group_id=group_id, city_en=city_en).pack()
             )
         ])
     
@@ -130,15 +137,13 @@ def get_groups_list_keyboard(groups: List[Dict], city: str) -> InlineKeyboardMar
 
 def get_group_info_keyboard(group_id: str, city: str) -> InlineKeyboardMarkup:
     """Клавиатура для информации о группе"""
-    # Сокращаем данные для callback
-    city_en = _get_city_en_short(city)
-    group_id_short = group_id.replace("-", "")[:16] if group_id else ""
+    city_en = _get_city_en(city)
     
     keyboard = [
         [
             InlineKeyboardButton(
                 text="👥 Ученики",
-                callback_data=GroupStudentsCallback(group_id=group_id_short, city_en=city_en).pack()
+                callback_data=GroupStudentsCallback(group_id=group_id, city_en=city_en).pack()
             ),
             InlineKeyboardButton(
                 text="📜 Сформировать сертификаты",
@@ -157,37 +162,34 @@ def get_group_info_keyboard(group_id: str, city: str) -> InlineKeyboardMarkup:
 
 def get_students_list_keyboard(students: List[Dict], group_id: str, city: str) -> InlineKeyboardMarkup:
     """Клавиатура со списком учеников группы"""
-    # Сокращаем данные для callback
-    city_en = _get_city_en_short(city)
-    group_id_short = group_id.replace("-", "")[:16] if group_id else ""
+    city_en = _get_city_en(city)
     
-    # Отладочная информация
-    print(f"🔘 Создаю клавиатуру учеников: group_id_full={group_id}, group_id_short={group_id_short}, students_count={len(students)}")
+    # Создаем маппинг для группы
+    group_id_short = id_mapping_service.add_mapping("group", group_id)
     
     keyboard = []
-    for student in students:
+    for idx, student in enumerate(students):
         student_name = student.get("ФИО", "Без имени")
-        student_id_full = student.get("ID", "")
-        # Сокращаем ID до 16 символов без дефисов
-        student_id_short = student_id_full.replace("-", "")[:16] if student_id_full else ""
+        student_id = student.get("ID", "")
         
-        if not student_id_short:
-            print(f"⚠️ Ученик {student_name} не имеет ID для создания кнопки")
+        if not student_id:
+            print(f"⚠️ Ученик #{idx+1} '{student_name}' не имеет ID, пропускаем")
             continue
         
         # Сокращаем имя если слишком длинное
         if len(student_name) > 30:
             student_name = student_name[:27] + "..."
         
-        # Отладочная информация
-        print(f"🔘 Создаю кнопку для ученика: {student_name[:30]}, ID_full={student_id_full}, ID_short={student_id_short}, group_id_short={group_id_short}")
+        # Создаем маппинг для ученика
+        student_id_short = id_mapping_service.add_mapping("student", student_id)
+        city_en_short = _shorten_city(city_en, 2)
         
         keyboard.append([
             InlineKeyboardButton(
                 text=student_name,
                 callback_data=StudentSelectCallback(
                     student_id=student_id_short,
-                    city_en=city_en,
+                    city_en=city_en_short,
                     group_id=group_id_short
                 ).pack()
             )
@@ -196,7 +198,7 @@ def get_students_list_keyboard(students: List[Dict], group_id: str, city: str) -
     keyboard.append([
         InlineKeyboardButton(
             text="◀️ Назад",
-            callback_data=BackCallback(level="group", city_en=city_en, group_id=group_id_short).pack()
+            callback_data=BackCallback(level="group", city_en=city_en, group_id=group_id).pack()
         )
     ])
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
@@ -204,8 +206,7 @@ def get_students_list_keyboard(students: List[Dict], group_id: str, city: str) -
 
 def get_back_to_info_keyboard(city: str) -> InlineKeyboardMarkup:
     """Клавиатура только с кнопкой Назад к информации"""
-    # Получаем английское название и сокращаем до 6 символов
-    city_en = _get_city_en_short(city)
+    city_en = _get_city_en(city)
     
     keyboard = [[
         InlineKeyboardButton(

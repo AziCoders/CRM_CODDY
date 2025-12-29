@@ -1,4 +1,16 @@
+# Основные зависимости для Telegram бота
 aiogram==3.13.1
 python-dotenv==1.0.0
+
+# Работа с Excel файлами
 openpyxl==3.1.2
+
+# VK бот (опционально)
 vkbottle==4.4.0
+
+# Notion API клиент (используется в src/ для синхронизации данных)
+notion-client>=2.2.1
+
+# Поддержка часовых поясов (для Python < 3.9)
+# Для Python 3.9+ zoneinfo входит в стандартную библиотеку
+backports.zoneinfo>=0.2.1; python_version<"3.9"

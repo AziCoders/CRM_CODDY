@@ -5,6 +5,7 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime
 from bot.config import ROOT_DIR, CITY_MAPPING
 from src.CRUD.crud_attendance import NotionAttendanceUpdater
+from bot.utils.timezone import format_date_msk, get_msk_now
 
 
 class AttendanceService:
@@ -91,18 +92,15 @@ class AttendanceService:
     
     def format_date(self, date_obj: Optional[datetime] = None) -> str:
         """
-        Форматирует дату в формат дд.мм.гггг для Notion
+        Форматирует дату в формат дд.мм.гггг для Notion (по МСК)
         
         Args:
-            date_obj: Объект datetime (если None, используется текущая дата)
+            date_obj: Объект datetime (если None, используется текущая дата МСК)
             
         Returns:
             Строка в формате "дд.мм.гггг"
         """
-        if date_obj is None:
-            date_obj = datetime.now()
-        
-        return date_obj.strftime("%d.%m.%Y")
+        return format_date_msk(date_obj)
     
     def status_index_to_notion_status(self, status_index: int) -> str:
         """

@@ -24,7 +24,8 @@ def get_manager_menu() -> ReplyKeyboardMarkup:
     keyboard = [
         [KeyboardButton(text="Добавить ученика"), KeyboardButton(text="Посещаемость")],
         [KeyboardButton(text="Оплаты"), KeyboardButton(text="Города")],
-        [KeyboardButton(text="Информация"), KeyboardButton(text="Рассылка")],
+        [KeyboardButton(text="Отчёты"), KeyboardButton(text="Информация")],
+        [KeyboardButton(text="Рассылка")],
     ]
     return ReplyKeyboardMarkup(
         keyboard=keyboard,

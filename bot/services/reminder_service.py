@@ -9,6 +9,7 @@ from bot.services.role_storage import RoleStorage
 from bot.services.attendance_service import AttendanceService
 from bot.services.payment_service import PaymentService
 from src.CRUD.crud_attendance import NotionAttendanceUpdater
+from bot.utils.timezone import get_msk_now, get_msk_time, get_msk_date, get_utc_time
 
 
 class ReminderService:
@@ -25,14 +26,14 @@ class ReminderService:
         "вс": 6,  # Воскресенье
     }
     
-    # Время напоминаний о посещаемости
-    REMINDER_TIMES = [time(19, 0), time(20, 0), time(22, 0)]
+    # Время напоминаний о посещаемости (UTC)
+    REMINDER_TIMES = [time(16, 0), time(17, 0), time(19, 0)]
     
-    # Время напоминаний о платежах
-    PAYMENT_REMINDER_TIME = time(13, 0)
+    # Время напоминаний о платежах (UTC)
+    PAYMENT_REMINDER_TIME = time(10, 0)
     
-    # Время напоминаний о необработанных учениках
-    UNPROCESSED_STUDENTS_REMINDER_TIME = time(10, 0)
+    # Время напоминаний о необработанных учениках (UTC)
+    UNPROCESSED_STUDENTS_REMINDER_TIME = time(7, 0)
     
     def __init__(self):
         self.root_dir = ROOT_DIR
@@ -93,7 +94,7 @@ class ReminderService:
             return False
         
         days, _ = schedule
-        today_weekday = datetime.now().weekday()  # 0 = понедельник, 6 = воскресенье
+        today_weekday = get_msk_now().weekday()  # 0 = понедельник, 6 = воскресенье
         
         return today_weekday in days
     
@@ -241,12 +242,12 @@ class ReminderService:
     
     def should_send_reminder_now(self) -> bool:
         """
-        Проверяет, нужно ли отправлять напоминание сейчас
+        Проверяет, нужно ли отправлять напоминание сейчас (по UTC)
         
         Returns:
-            True если текущее время совпадает с одним из времен напоминаний
+            True если текущее время UTC совпадает с одним из времен напоминаний
         """
-        now = datetime.now().time()
+        now = get_utc_time()
         
         for reminder_time in self.REMINDER_TIMES:
             # Проверяем с точностью до минуты
@@ -257,22 +258,22 @@ class ReminderService:
     
     def should_send_payment_reminder_now(self) -> bool:
         """
-        Проверяет, нужно ли отправлять напоминание о платежах сейчас (13:00)
+        Проверяет, нужно ли отправлять напоминание о платежах сейчас (10:00 по UTC)
         
         Returns:
-            True если текущее время 13:00
+            True если текущее время UTC 10:00
         """
-        now = datetime.now().time()
+        now = get_utc_time()
         return now.hour == self.PAYMENT_REMINDER_TIME.hour and now.minute == self.PAYMENT_REMINDER_TIME.minute
     
     def should_send_unprocessed_students_reminder_now(self) -> bool:
         """
-        Проверяет, нужно ли отправлять напоминание о необработанных учениках сейчас (10:00)
+        Проверяет, нужно ли отправлять напоминание о необработанных учениках сейчас (07:00 по UTC)
         
         Returns:
-            True если текущее время 10:00
+            True если текущее время UTC 07:00
         """
-        now = datetime.now().time()
+        now = get_utc_time()
         return now.hour == self.UNPROCESSED_STUDENTS_REMINDER_TIME.hour and now.minute == self.UNPROCESSED_STUDENTS_REMINDER_TIME.minute
     
     def _parse_payment_date(self, payment_date_str: str) -> int:
@@ -389,7 +390,7 @@ class ReminderService:
             3: []   # Через 3 дня
         }
         
-        today = datetime.now()
+        today = get_msk_now()
         
         # Проходим по всем городам
         for city_name in CITIES:
